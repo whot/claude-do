@@ -357,7 +357,10 @@ Do something interesting.
         """Test 'do' command --help."""
         result = runner.invoke(claude_do, ["do", "--help"])
         assert result.exit_code == 0
-        assert "Tell Claude to do something on a work tree" in result.output
+        assert (
+            "Tell Claude to do something non-code related on a work tree"
+            in result.output
+        )
         assert "--base-branch" in result.output
         assert "--instructions" in result.output
 
@@ -434,6 +437,119 @@ Do something interesting.
             result = runner.invoke(
                 claude_do,
                 ["--dry-run", "do", "--instructions", str(mock_instructions_file)],
+            )
+
+            # Should call claude_do with dry_run=True
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
+            assert call_kwargs[1]["dry_run"] is True
+            assert result.exit_code == 0
+
+
+class TestCodeCommand:
+    """Tests for the 'code' command."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CliRunner instance."""
+        return CliRunner()
+
+    @pytest.fixture
+    def mock_instructions_file(self, tmp_path):
+        """Create a temporary instructions file."""
+        instructions = tmp_path / "instructions.md"
+        instructions.write_text(
+            """---
+description: Test task
+tools: Bash(test:*)
+---
+
+Do something interesting.
+"""
+        )
+        return instructions
+
+    def test_code_help(self, runner):
+        """Test 'code' command --help."""
+        result = runner.invoke(claude_do, ["code", "--help"])
+        assert result.exit_code == 0
+        assert "Tell Claude to code something on a work tree" in result.output
+        assert "--base-branch" in result.output
+        assert "--instructions" in result.output
+
+    def test_code_with_instructions_file(self, runner, mock_instructions_file):
+        """Test 'code' command with instructions file."""
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
+
+            result = runner.invoke(
+                claude_do, ["code", "--instructions", str(mock_instructions_file)]
+            )
+
+            # Should call claude_do with the instructions
+            mock_claude_run.assert_called_once()
+            assert result.exit_code == 0
+
+    def test_code_with_nonexistent_instructions_file(self, runner, tmp_path):
+        """Test 'code' command with non-existent instructions file."""
+        nonexistent = tmp_path / "nonexistent.md"
+
+        result = runner.invoke(claude_do, ["code", "--instructions", str(nonexistent)])
+
+        # Click returns exit code 2 for validation errors
+        assert result.exit_code == 2
+        assert "does not exist" in result.output
+
+    def test_code_with_base_branch(self, runner, mock_instructions_file):
+        """Test 'code' command with custom base branch."""
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
+
+            result = runner.invoke(
+                claude_do,
+                [
+                    "code",
+                    "--base-branch",
+                    "develop",
+                    "--instructions",
+                    str(mock_instructions_file),
+                ],
+            )
+
+            # Should call claude_do with develop as base_branch
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
+            assert call_kwargs[1]["base_branch"] == "develop"
+            assert result.exit_code == 0
+
+    def test_code_with_stdin_input(self, runner):
+        """Test 'code' command with stdin input."""
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
+
+            result = runner.invoke(
+                claude_do, ["code"], input="Fix all the bugs\n", catch_exceptions=False
+            )
+
+            # Should call claude_do with stdin instructions
+            mock_claude_run.assert_called_once()
+            assert result.exit_code == 0
+
+    def test_code_with_empty_stdin(self, runner):
+        """Test 'code' command with empty stdin."""
+        result = runner.invoke(claude_do, ["code"], input="")
+
+        # Command shows error message
+        assert "Empty instructions" in result.output
+
+    def test_code_with_dry_run(self, runner, mock_instructions_file):
+        """Test 'code' command with --dry-run flag."""
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
+
+            result = runner.invoke(
+                claude_do,
+                ["--dry-run", "code", "--instructions", str(mock_instructions_file)],
             )
 
             # Should call claude_do with dry_run=True
