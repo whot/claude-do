@@ -727,6 +727,164 @@ class TestTaskCommand:
                     assert result.exit_code == 0
 
 
+class TestIsolationOption:
+    """Tests for the --isolation option across do, code, and review commands."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CliRunner instance."""
+        return CliRunner()
+
+    @pytest.fixture
+    def mock_instructions_file(self, tmp_path):
+        """Create a temporary instructions file."""
+        instructions = tmp_path / "instructions.md"
+        instructions.write_text(
+            """---
+description: Test task
+tools: Bash(test:*)
+---
+
+Do something interesting.
+"""
+        )
+        return instructions
+
+    @pytest.mark.parametrize("command", ["do", "code", "review"])
+    def test_isolation_option_in_help(self, runner, command):
+        """Test --isolation option appears in help for do, code, and review commands."""
+        result = runner.invoke(papagai, [command, "--help"])
+        assert result.exit_code == 0
+        assert "--isolation" in result.output
+        assert "auto" in result.output
+        assert "worktree" in result.output
+        assert "overlayfs" in result.output
+
+    @pytest.mark.parametrize("command", ["do", "code"])
+    @pytest.mark.parametrize(
+        "isolation_value",
+        ["auto", "worktree", "overlayfs"],
+    )
+    def test_isolation_option_passed_to_claude_run(
+        self, runner, command, isolation_value, mock_instructions_file
+    ):
+        """Test --isolation option is correctly passed to claude_run for do and code commands."""
+        with patch("papagai.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
+
+            result = runner.invoke(
+                papagai,
+                [
+                    command,
+                    "--isolation",
+                    isolation_value,
+                    "--instructions",
+                    str(mock_instructions_file),
+                ],
+            )
+
+            # Should call claude_run with the correct isolation value
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
+            from papagai.cli import Isolation
+
+            assert call_kwargs[1]["isolation"] == Isolation(isolation_value)
+            assert result.exit_code == 0
+
+    @pytest.mark.parametrize(
+        "isolation_value",
+        ["auto", "worktree", "overlayfs"],
+    )
+    def test_isolation_option_passed_to_claude_run_review(
+        self, runner, isolation_value
+    ):
+        """Test --isolation option is correctly passed to claude_run for review command."""
+        with patch("papagai.cli.claude_run") as mock_claude_run:
+            with patch("papagai.cli.get_builtin_tasks_dir") as mock_get_dir:
+                # Create a mock instructions directory
+                mock_dir = MagicMock()
+                mock_get_dir.return_value = mock_dir
+
+                # Mock the review task file
+                mock_task_file = MagicMock()
+                mock_task_file.exists.return_value = True
+                mock_dir.__truediv__.return_value = mock_task_file
+
+                with patch(
+                    "papagai.cli.MarkdownInstructions.from_file"
+                ) as mock_from_file:
+                    mock_instructions = MagicMock()
+                    mock_from_file.return_value = mock_instructions
+                    mock_claude_run.return_value = 0
+
+                    result = runner.invoke(
+                        papagai,
+                        ["review", "--isolation", isolation_value],
+                    )
+
+                    # Should call claude_run with the correct isolation value
+                    mock_claude_run.assert_called_once()
+                    call_kwargs = mock_claude_run.call_args
+                    from papagai.cli import Isolation
+
+                    assert call_kwargs[1]["isolation"] == Isolation(isolation_value)
+                    assert result.exit_code == 0
+
+    @pytest.mark.parametrize("command", ["do", "code", "review"])
+    def test_isolation_default_is_auto(self, runner, command, mock_instructions_file):
+        """Test that default isolation mode is 'auto' for all commands."""
+        with patch("papagai.cli.claude_run") as mock_claude_run:
+            if command == "review":
+                with patch("papagai.cli.get_builtin_tasks_dir") as mock_get_dir:
+                    # Create a mock instructions directory
+                    mock_dir = MagicMock()
+                    mock_get_dir.return_value = mock_dir
+
+                    # Mock the review task file
+                    mock_task_file = MagicMock()
+                    mock_task_file.exists.return_value = True
+                    mock_dir.__truediv__.return_value = mock_task_file
+
+                    with patch(
+                        "papagai.cli.MarkdownInstructions.from_file"
+                    ) as mock_from_file:
+                        mock_instructions = MagicMock()
+                        mock_from_file.return_value = mock_instructions
+                        mock_claude_run.return_value = 0
+
+                        result = runner.invoke(papagai, [command])
+            else:
+                mock_claude_run.return_value = 0
+                result = runner.invoke(
+                    papagai,
+                    [command, "--instructions", str(mock_instructions_file)],
+                )
+
+            # Should call claude_run with isolation=Isolation.AUTO
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
+            from papagai.cli import Isolation
+
+            assert call_kwargs[1]["isolation"] == Isolation.AUTO
+            assert result.exit_code == 0
+
+    @pytest.mark.parametrize("command", ["do", "code", "review"])
+    def test_isolation_with_invalid_value(
+        self, runner, command, mock_instructions_file
+    ):
+        """Test that invalid isolation values are rejected."""
+        cmd_args = [command, "--isolation", "invalid"]
+
+        if command in ["do", "code"]:
+            cmd_args.extend(["--instructions", str(mock_instructions_file)])
+
+        result = runner.invoke(papagai, cmd_args)
+
+        # Click should reject the invalid choice
+        assert result.exit_code == 2
+        assert "Invalid value" in result.output or "invalid" in result.output.lower()
+
+
 class TestReviewCommand:
     """Tests for the 'review' command."""
 
