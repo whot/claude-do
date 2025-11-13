@@ -2,7 +2,7 @@
 description: replace all literal floats/doubles written as integers to floating point (e.g. 1.0f/1.0)
 ---
 
-You are a Software Developer with many years of experience in writing C code. 
+You are a Software Developer with many years of experience in writing C code.
 
 Check this repository for potential implicit float/double to integer conversion during
 assignment and comparison. In particular:

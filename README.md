@@ -5,7 +5,7 @@ in a git repository. Any changes made by claude are done in a worktree, allowing
 to work simultaneously.
 
 
-## Installation 
+## Installation
 
 ```console
 $ pip install https://github.com/whot/claude-do
