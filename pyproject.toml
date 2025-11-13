@@ -44,7 +44,7 @@ include = [
     "papagai/instructions/**/*.md",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
+    "pytest>=8.4.2",
 ]
