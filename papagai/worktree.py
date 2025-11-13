@@ -143,6 +143,16 @@ class WorktreeOverlayFs(Worktree):
     mount_dir: Path | None = None
 
     @classmethod
+    def is_supported(cls) -> bool:
+        """
+        Check if fuse-overlayfs is available on the system.
+
+        Returns:
+            True if fuse-overlayfs command is available, False otherwise
+        """
+        return shutil.which("fuse-overlayfs") is not None
+
+    @classmethod
     def from_branch(
         cls, repo_dir: Path, base_branch: str, branch_prefix: str | None = None
     ) -> Self:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import enum
 import os
 import shlex
 import subprocess
@@ -13,7 +14,7 @@ import click
 
 from .cmd import run_command
 from .markdown import MarkdownInstructions
-from .worktree import Worktree, BRANCH_PREFIX
+from .worktree import Worktree, WorktreeOverlayFs, BRANCH_PREFIX
 
 
 @dataclass
@@ -46,6 +47,12 @@ practices:
 - use descriptive subject lines
 - group logical changes together
 """
+
+
+class Isolation(enum.StrEnum):
+    AUTO = "auto"
+    WORKTREE = "worktree"
+    OVERLAYFS = "overlayfs"
 
 
 def get_builtin_tasks_dir() -> Path:
@@ -138,6 +145,7 @@ def claude_run(
     instructions: MarkdownInstructions,
     dry_run: bool,
     branch_prefix: str = "",
+    isolation: Isolation = Isolation.AUTO,
 ):
     # Resolve repository directory
     repo_dir = Path.cwd().resolve()
@@ -155,12 +163,32 @@ def claude_run(
         )
         return 1
 
+    worktree_class = Worktree
+    if isolation in [Isolation.AUTO, Isolation.OVERLAYFS]:
+        if WorktreeOverlayFs.is_supported():
+            worktree_class = WorktreeOverlayFs
+        elif isolation != Isolation.AUTO:
+            click.secho(
+                "Error: fuse-overlayfs is not available. Please install it or use --isolation=worktree",
+                err=True,
+                fg="red",
+            )
+            return 1
+        else:
+            worktree_class = Worktree
+    elif isolation == Isolation.WORKTREE:
+        worktree_class = Worktree
+    else:
+        raise NotImplementedError(f"Error: Invalid isolation mode {isolation}")
+
     allowed_tools = ALLOWED_TOOLS + instructions.tools
     try:
-        with Worktree.from_branch(
+        with worktree_class.from_branch(
             repo_dir, branch, branch_prefix=f"{BRANCH_PREFIX}/{branch_prefix}"
         ) as worktree:
-            click.secho(f"Working in {worktree.branch} (based off {branch})", bold=True)
+            click.secho(
+                f"Working in branch {worktree.branch} (based off {branch})", bold=True
+            )
 
             assert instructions.text
             insts = instructions.text.replace("{BRANCH}", branch)
@@ -270,11 +298,18 @@ def papagai(ctx, dry_run: bool):
     default=None,
     help="The instructions file - if None use stdin",
 )
+@click.option(
+    "--isolation",
+    type=click.Choice(["auto", "worktree", "overlayfs"], case_sensitive=False),
+    default="auto",
+    help="Worktree isolation mode: auto (try overlayfs, fall back to worktree), worktree (git worktree), or overlayfs (fuse-overlayfs)",
+)
 @click.pass_context
 def cmd_do(
     ctx,
     base_branch: str,
     instructions_file: Optional[Path],
+    isolation: str,
 ) -> int:
     """
     Tell Claude to do something non-code related on a work tree.
@@ -310,6 +345,7 @@ def cmd_do(
         base_branch=base_branch,
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
+        isolation=Isolation(isolation),
     )
 
 
@@ -326,11 +362,18 @@ def cmd_do(
     default=None,
     help="The instructions file - if None use stdin",
 )
+@click.option(
+    "--isolation",
+    type=click.Choice(["auto", "worktree", "overlayfs"], case_sensitive=False),
+    default="auto",
+    help="Worktree isolation mode: auto (try overlayfs, fall back to worktree), worktree (git worktree), or overlayfs (fuse-overlayfs)",
+)
 @click.pass_context
 def cmd_code(
     ctx,
     base_branch: str,
     instructions_file: Optional[Path],
+    isolation: str,
 ) -> int:
     """
     Tell Claude to code something on a work tree.
@@ -370,6 +413,7 @@ def cmd_code(
         base_branch=base_branch,
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
+        isolation=Isolation(isolation),
     )
 
 
@@ -470,10 +514,17 @@ def cmd_task(
     default="HEAD",
     help="Branch to base the work on (default: current branch)",
 )
+@click.option(
+    "--isolation",
+    type=click.Choice(["auto", "worktree", "overlayfs"], case_sensitive=False),
+    default="auto",
+    help="Worktree isolation mode: auto (try overlayfs, fall back to worktree), worktree (git worktree), or overlayfs (fuse-overlayfs)",
+)
 @click.pass_context
 def cmd_review(
     ctx,
     base_branch: str,
+    isolation: str,
 ) -> int:
     """
     Run a code review on the current branch.
@@ -510,6 +561,7 @@ def cmd_review(
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
         branch_prefix="review-",
+        isolation=Isolation(isolation),
     )
 
 
