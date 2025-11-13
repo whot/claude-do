@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import enum
+import logging
 import os
 import shlex
 import subprocess
@@ -12,9 +13,26 @@ from typing import Optional
 
 import click
 
+try:
+    import rich.logging
+
+    handler = rich.logging.RichHandler(rich_tracebacks=True)
+except ModuleNotFoundError:
+    handler = logging.StreamHandler()
+
+
 from .cmd import run_command
 from .markdown import MarkdownInstructions
 from .worktree import Worktree, WorktreeOverlayFs, BRANCH_PREFIX
+
+
+logging.basicConfig(
+    level="INFO",
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[handler],
+)
+logger = logging.getLogger("papagai")
 
 
 @dataclass
@@ -176,6 +194,8 @@ def claude_run(
             return 1
         else:
             worktree_class = Worktree
+        if isolation == Isolation.AUTO:
+            logger.debug(f"Using isolation {worktree_class.__name__}")
     elif isolation == Isolation.WORKTREE:
         worktree_class = Worktree
     else:
@@ -273,14 +293,19 @@ def list_all_tasks() -> int:
 
 
 @click.group()
+@click.option("-v", "--verbose", count=True, help="increase verbosity")
 @click.option(
     "--dry-run",
     is_flag=True,
     help="Show the claude command that would be executed without running it",
 )
 @click.pass_context
-def papagai(ctx, dry_run: bool):
+def papagai(ctx, dry_run: bool, verbose: int):
     """Papagai: Automate code changes with Claude AI on git worktrees."""
+
+    verbose_levels = {0: logging.ERROR, 1: logging.INFO, 2: logging.DEBUG}
+    logger.setLevel(verbose_levels.get(verbose, 0))
+    logger.debug(f"Verbose level set {logger.getEffectiveLevel()}")
     # Store context object for subcommands
     ctx.obj = Context(dry_run=dry_run)
 

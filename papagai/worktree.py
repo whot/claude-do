@@ -3,6 +3,7 @@
 
 """Git worktree management for papagai."""
 
+import logging
 import os
 import shutil
 import subprocess
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Self
 
 from .cmd import run_command
+
+logger = logging.getLogger("papagai.worktree")
 
 BRANCH_PREFIX = "papagai"
 LATEST_BRANCH = f"{BRANCH_PREFIX}/latest"
@@ -216,6 +219,8 @@ class WorktreeOverlayFs(Worktree):
         )
         overlay_base_dir = xdg_cache_home / repo_dir.name / branch
         overlay_base_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.debug(f"Setting up overlayfs in {overlay_base_dir}")
 
         upperdir = overlay_base_dir / "upperdir"
         workdir = overlay_base_dir / "workdir"
