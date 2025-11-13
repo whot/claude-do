@@ -118,7 +118,7 @@ class MarkdownInstructions(Markdown):
     tools: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_string(cls, content: str) -> "MarkdownInstructions":
+    def from_string(cls, content: str) -> Self:
         """
         Parse a markdown string and extract instructions frontmatter.
 
@@ -149,7 +149,7 @@ class MarkdownInstructions(Markdown):
         )
 
     @classmethod
-    def from_file(cls, file_path: Path) -> "MarkdownInstructions":
+    def from_file(cls, file_path: Path) -> Self:
         """
         Parse a markdown file and extract instructions frontmatter.
 

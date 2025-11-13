@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Self
 
 from .cmd import run_command
 
@@ -34,7 +35,7 @@ class Worktree:
     @classmethod
     def from_branch(
         cls, repo_dir: Path, base_branch: str, branch_prefix: str | None = None
-    ) -> "Worktree":
+    ) -> Self:
         """
         Create a new review branch using git worktree.
 
@@ -71,7 +72,7 @@ class Worktree:
 
         return cls(worktree_dir=worktree_dir, branch=branch, repo_dir=repo_dir)
 
-    def __enter__(self) -> "Worktree":
+    def __enter__(self) -> Self:
         """Enter the context manager."""
         return self
 
