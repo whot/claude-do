@@ -575,3 +575,186 @@ tools: Bash(git:*), Glob(**/*.py), Grep(*.{js,ts}), Edit(./**/*)
         "Grep(*.{js,ts})",
         "Edit(./**/*)",
     ]
+
+
+# Tests for MarkdownInstructions.combine
+
+
+def test_markdown_instructions_combine_simple():
+    """Test combining two MarkdownInstructions objects."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+description: First description
+tools: Bash(npm:*)
+---
+
+First text.
+""")
+
+    second = MarkdownInstructions.from_string("""---
+description: Second description
+tools: Read(*.js)
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    assert combined.description == "First description"
+    assert combined.text == "\nFirst text.\n\n\nSecond text.\n"
+    assert combined.tools == ["Bash(npm:*)", "Read(*.js)"]
+
+
+def test_markdown_instructions_combine_duplicate_tools():
+    """Test combining with duplicate tools deduplicates them."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+description: First description
+tools: Bash(npm:*), Read(*.js)
+---
+
+First text.
+""")
+
+    second = MarkdownInstructions.from_string("""---
+description: Second description
+tools: Read(*.js), Write(*.ts)
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    assert combined.description == "First description"
+    assert combined.tools == ["Bash(npm:*)", "Read(*.js)", "Write(*.ts)"]
+    assert combined.text == "\nFirst text.\n\n\nSecond text.\n"
+
+
+def test_markdown_instructions_combine_empty_tools():
+    """Test combining when one object has no tools."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+description: First description
+tools: Bash(npm:*)
+---
+
+First text.
+""")
+
+    second = MarkdownInstructions.from_string("""---
+description: Second description
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    assert combined.description == "First description"
+    assert combined.tools == ["Bash(npm:*)"]
+    assert combined.text == "\nFirst text.\n\n\nSecond text.\n"
+
+
+def test_markdown_instructions_combine_no_frontmatter():
+    """Test combining when objects have no frontmatter."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("First text.")
+    second = MarkdownInstructions.from_string("Second text.")
+
+    combined = first.combine(second)
+
+    assert combined.description == ""
+    assert combined.tools == []
+    assert combined.text == "First text.\nSecond text."
+
+
+def test_markdown_instructions_combine_frontmatter_merge():
+    """Test that frontmatter is merged correctly."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+description: First description
+author: First Author
+version: 1.0
+---
+
+First text.
+""")
+
+    second = MarkdownInstructions.from_string("""---
+description: Second description
+author: Second Author
+title: Second Title
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    # First object's frontmatter takes precedence
+    assert combined.frontmatter["description"] == "First description"
+    assert combined.frontmatter["author"] == "First Author"
+    assert combined.frontmatter["version"] == "1.0"
+    # Second object's unique keys are included
+    assert combined.frontmatter["title"] == "Second Title"
+
+
+def test_markdown_instructions_combine_preserves_tool_order():
+    """Test that tool order is preserved from first then second."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+tools: Bash(git:*), Glob(**/*.py), Read(*.js)
+---
+
+First text.
+""")
+
+    second = MarkdownInstructions.from_string("""---
+tools: Write(*.ts), Edit(*.md)
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    assert combined.tools == [
+        "Bash(git:*)",
+        "Glob(**/*.py)",
+        "Read(*.js)",
+        "Write(*.ts)",
+        "Edit(*.md)",
+    ]
+
+
+def test_markdown_instructions_combine_empty_text():
+    """Test combining when one object has empty text."""
+    from claude_do.markdown import MarkdownInstructions
+
+    first = MarkdownInstructions.from_string("""---
+description: First description
+tools: Bash(npm:*)
+---
+""")
+
+    second = MarkdownInstructions.from_string("""---
+description: Second description
+tools: Read(*.js)
+---
+
+Second text.
+""")
+
+    combined = first.combine(second)
+
+    assert combined.description == "First description"
+    assert combined.text == "\n\nSecond text.\n"
+    assert combined.tools == ["Bash(npm:*)", "Read(*.js)"]

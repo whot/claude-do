@@ -183,6 +183,46 @@ class MarkdownInstructions(Markdown):
             tools=tools,
         )
 
+    def combine(self, other: Self) -> Self:
+        """
+        Combine this MarkdownInstructions with another.
+
+        Creates a new MarkdownInstructions with:
+        - Text from both objects concatenated (self.text + other.text)
+        - Tools from both objects combined (deduplicated)
+        - Description from only the first object (self)
+        - Frontmatter merged from both objects
+
+        Args:
+            other: Another MarkdownInstructions to combine with
+
+        Returns:
+            New MarkdownInstructions with combined content
+        """
+        # Combine text from both objects
+        combined_text = self.text + "\n" + other.text
+
+        # Combine tools, preserving order and removing duplicates
+        seen = set()
+        combined_tools = []
+        for tool in self.tools + other.tools:
+            if tool not in seen:
+                seen.add(tool)
+                combined_tools.append(tool)
+
+        # Merge frontmatter (self takes precedence for duplicate keys)
+        combined_frontmatter = {**other.frontmatter, **self.frontmatter}
+
+        # Description only from first object
+        description = self.description
+
+        return type(self)(
+            frontmatter=combined_frontmatter,
+            text=combined_text,
+            description=description,
+            tools=combined_tools,
+        )
+
     @staticmethod
     def _parse_tools(tools_str: str) -> list[str]:
         """
