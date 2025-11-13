@@ -42,6 +42,7 @@ path = "papagai/__init__.py"
 packages = ["papagai"]
 include = [
     "papagai/instructions/**/*.md",
+    "papagai/primers/**/*.md",
 ]
 
 [dependency-groups]

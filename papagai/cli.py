@@ -549,9 +549,6 @@ def cmd_review(
 ) -> int:
     """
     Run a code review on the current branch.
-
-    This is a convenience command equivalent to:
-    papagai task generic/review
     """
     # Resolve repository directory
     repo_dir = Path.cwd().resolve()
@@ -559,9 +556,8 @@ def cmd_review(
         click.secho(f"Error: {repo_dir} is not a directory", err=True, fg="red")
         return 1
 
-    # Load the review instructions from the builtin task
-    instructions_dir = get_builtin_tasks_dir()
-    review_task_file = instructions_dir / "generic" / "review.md"
+    primers_dir = get_builtin_primers_dir()
+    review_task_file = primers_dir / "review.md"
 
     if not review_task_file.exists():
         click.secho(

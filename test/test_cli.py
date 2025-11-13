@@ -894,7 +894,6 @@ class TestReviewCommand:
         result = runner.invoke(papagai, ["review", "--help"])
         assert result.exit_code == 0
         assert "Run a code review on the current branch" in result.output
-        assert "generic/review" in result.output
         assert "--base-branch" in result.output
 
     def test_review_success(self, runner):
@@ -982,30 +981,28 @@ class TestReviewCommand:
 
     def test_review_missing_task_file(self, runner, tmp_path):
         """Test 'review' command when review.md doesn't exist."""
-        # Create a fake instructions directory without the review file
-        fake_instructions_dir = tmp_path / "instructions"
-        fake_instructions_dir.mkdir()
-        generic_dir = fake_instructions_dir / "generic"
-        generic_dir.mkdir()
+        # Create a fake primers directory without the review file
+        fake_primers_dir = tmp_path / "primers"
+        fake_primers_dir.mkdir()
         # Note: NOT creating review.md file
 
-        with patch("papagai.cli.get_builtin_tasks_dir") as mock_get_dir:
-            mock_get_dir.return_value = fake_instructions_dir
+        with patch("papagai.cli.get_builtin_primers_dir") as mock_get_dir:
+            mock_get_dir.return_value = fake_primers_dir
 
             result = runner.invoke(papagai, ["review"])
 
             # Command shows error message
             assert "Review task not found" in result.output
 
-    def test_review_equivalent_to_task(self, runner):
-        """Test 'review' calls same code as 'task generic/review'."""
+    def test_review_loads_from_primers(self, runner):
+        """Test 'review' command loads review.md from primers directory."""
         with patch("papagai.cli.claude_run") as mock_claude_run:
-            with patch("papagai.cli.get_builtin_tasks_dir") as mock_get_dir:
-                # Create a mock instructions directory
+            with patch("papagai.cli.get_builtin_primers_dir") as mock_get_dir:
+                # Create a mock primers directory
                 mock_dir = MagicMock()
                 mock_get_dir.return_value = mock_dir
 
-                # Mock the review task file
+                # Mock the review primer file
                 mock_task_file = MagicMock()
                 mock_task_file.exists.return_value = True
                 mock_dir.__truediv__.return_value = mock_task_file
@@ -1018,22 +1015,9 @@ class TestReviewCommand:
                     mock_claude_run.return_value = 0
 
                     # Run review command
-                    result1 = runner.invoke(
-                        papagai, ["review", "--base-branch", "main"]
-                    )
-                    review_call = mock_claude_run.call_args
+                    result = runner.invoke(papagai, ["review", "--base-branch", "main"])
 
-                    # Reset mock
-                    mock_claude_run.reset_mock()
-
-                    # Run task command
-                    result2 = runner.invoke(
-                        papagai, ["task", "--base-branch", "main", "generic/review"]
-                    )
-                    task_call = mock_claude_run.call_args
-
-                    # Both should call claude_run with same arguments
-                    assert result1.exit_code == 0
-                    assert result2.exit_code == 0
-                    assert review_call[1]["base_branch"] == task_call[1]["base_branch"]
-                    assert review_call[1]["dry_run"] == task_call[1]["dry_run"]
+                    # Verify it loaded from primers
+                    assert result.exit_code == 0
+                    mock_get_dir.assert_called_once()
+                    mock_claude_run.assert_called_once()

@@ -102,9 +102,9 @@ class TestGetBuiltinTasksDir:
         """Test get_builtin_tasks_dir has expected structure."""
         tasks_dir = get_builtin_tasks_dir()
 
-        # Should have at least the generic directory
-        assert (tasks_dir / "generic").exists()
-        assert (tasks_dir / "generic").is_dir()
+        # Should have at least the python directory
+        assert (tasks_dir / "python").exists()
+        assert (tasks_dir / "python").is_dir()
 
 
 class TestListAllTasks:
@@ -127,8 +127,8 @@ class TestListAllTasks:
 
         assert exit_code == 0
         captured = capsys.readouterr()
-        # Should show at least the generic/review task
-        assert "generic/review" in captured.out
+        # Should show at least the python/update-to-3.9 task
+        assert "python/update-to-3.9" in captured.out
 
     def test_list_all_tasks_with_xdg_tasks(self, setup_xdg_tasks, capsys):
         """Test list_all_tasks includes tasks from XDG_CONFIG_HOME."""
@@ -179,7 +179,7 @@ Content.
         assert exit_code == 0
         captured = capsys.readouterr()
         # Should still show built-in tasks
-        assert "generic/review" in captured.out
+        assert "python/update-to-3.9" in captured.out
 
     def test_list_all_tasks_xdg_directory_not_exists(self, monkeypatch, capsys):
         """Test list_all_tasks works when XDG directory doesn't exist."""
@@ -191,7 +191,7 @@ Content.
         assert exit_code == 0
         captured = capsys.readouterr()
         # Should still show built-in tasks
-        assert "generic/review" in captured.out
+        assert "python/update-to-3.9" in captured.out
 
     def test_list_all_tasks_with_subdirectories(self, setup_xdg_tasks, capsys):
         """Test list_all_tasks handles tasks in subdirectories."""
@@ -366,31 +366,31 @@ Do something custom.
     def test_task_xdg_takes_precedence_over_builtin(self, runner, setup_xdg_tasks):
         """Test XDG tasks take precedence over built-in tasks with same name."""
         # Create a custom task with the same name as a built-in one
-        generic_dir = setup_xdg_tasks / "generic"
-        generic_dir.mkdir()
-        custom_review = generic_dir / "review.md"
-        custom_review.write_text(
+        python_dir = setup_xdg_tasks / "python"
+        python_dir.mkdir()
+        custom_task = python_dir / "update-to-3.9.md"
+        custom_task.write_text(
             """---
-description: Custom review task
+description: Custom Python update task
 tools: Bash(custom:*)
 ---
 
-This is my custom review.
+This is my custom Python update.
 """
         )
 
         with patch("papagai.cli.claude_run") as mock_claude_run:
             with patch("papagai.cli.MarkdownInstructions.from_file") as mock_from_file:
                 mock_instructions = MagicMock()
-                mock_instructions.text = "This is my custom review."
+                mock_instructions.text = "This is my custom Python update."
                 mock_from_file.return_value = mock_instructions
                 mock_claude_run.return_value = 0
 
-                result = runner.invoke(papagai, ["task", "generic/review"])
+                result = runner.invoke(papagai, ["task", "python/update-to-3.9"])
 
                 # Should load the XDG version
                 mock_from_file.assert_called_once()
-                assert "custom review" in custom_review.read_text().lower()
+                assert "custom python update" in custom_task.read_text().lower()
                 assert result.exit_code == 0
 
     def test_task_falls_back_to_builtin(self, runner, setup_xdg_tasks):
@@ -400,7 +400,7 @@ This is my custom review.
         with patch("papagai.cli.claude_run") as mock_claude_run:
             mock_claude_run.return_value = 0
 
-            result = runner.invoke(papagai, ["task", "generic/review"])
+            result = runner.invoke(papagai, ["task", "python/update-to-3.9"])
 
             # Should load the built-in task
             mock_claude_run.assert_called_once()
@@ -491,7 +491,7 @@ Content.
         with patch("papagai.cli.claude_run") as mock_claude_run:
             mock_claude_run.return_value = 0
 
-            result = runner.invoke(papagai, ["task", "generic/review"])
+            result = runner.invoke(papagai, ["task", "python/update-to-3.9"])
 
             # Should still work with built-in tasks
             mock_claude_run.assert_called_once()
@@ -525,15 +525,15 @@ class TestTaskCommandIntegration:
         xdg_tasks = setup_complete_environment["xdg_tasks_dir"]
 
         # Create an XDG task that shadows a built-in one
-        generic_dir = xdg_tasks / "generic"
-        generic_dir.mkdir()
-        xdg_review = generic_dir / "review.md"
-        xdg_review.write_text(
+        python_dir = xdg_tasks / "python"
+        python_dir.mkdir()
+        xdg_python = python_dir / "update-to-3.9.md"
+        xdg_python.write_text(
             """---
-description: XDG custom review
+description: XDG custom Python update
 ---
 
-XDG review content.
+XDG Python update content.
 """
         )
 
@@ -555,12 +555,12 @@ Unique content.
                 mock_claude_run.return_value = 0
 
                 # Test loading the shadowed task
-                result1 = runner.invoke(papagai, ["task", "generic/review"])
+                result1 = runner.invoke(papagai, ["task", "python/update-to-3.9"])
                 assert result1.exit_code == 0
 
                 # Verify XDG version was loaded (not built-in)
                 called_path = mock_from_file.call_args[0][0]
-                assert called_path == xdg_review
+                assert called_path == xdg_python
 
                 # Reset mock
                 mock_from_file.reset_mock()
@@ -604,7 +604,7 @@ Content.
         assert "xdg-task-1" in result.output
         assert "xdg-task-2" in result.output
         # Should also show built-in tasks
-        assert "generic/review" in result.output
+        assert "python/update-to-3.9" in result.output
 
     def test_empty_xdg_directory_uses_builtins(
         self, runner, setup_complete_environment
@@ -615,7 +615,7 @@ Content.
         with patch("papagai.cli.claude_run") as mock_claude_run:
             mock_claude_run.return_value = 0
 
-            result = runner.invoke(papagai, ["task", "generic/review"])
+            result = runner.invoke(papagai, ["task", "python/update-to-3.9"])
 
             # Should successfully load built-in task
             mock_claude_run.assert_called_once()
