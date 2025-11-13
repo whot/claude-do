@@ -53,6 +53,11 @@ def get_builtin_tasks_dir() -> Path:
     return package_dir / "tasks"
 
 
+def get_builtin_primers_dir() -> Path:
+    package_dir = Path(__file__).parent
+    return package_dir / "primers"
+
+
 def get_xdg_task_dir() -> Path:
     return (
         Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -272,7 +277,12 @@ def cmd_do(
     instructions_file: Optional[Path],
 ) -> int:
     """
-    Tell Claude to do something on a work tree.
+    Tell Claude to do something non-code related on a work tree.
+
+    This is the command for non-coding related tasks, and the instructions
+    should include priming Claude for the task at hand.
+
+    See claude-do code for programming tasks.
     """
 
     if instructions_file is not None:
@@ -295,6 +305,66 @@ def cmd_do(
             fg="red",
         )
         return 1
+
+    return claude_run(
+        base_branch=base_branch,
+        instructions=instructions,
+        dry_run=ctx.obj.dry_run,
+    )
+
+
+@claude_do.command("code")
+@click.option(
+    "--base-branch",
+    default="HEAD",
+    help="Branch to base the work on (default: current branch)",
+)
+@click.option(
+    "--instructions",
+    "instructions_file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="The instructions file - if None use stdin",
+)
+@click.pass_context
+def cmd_code(
+    ctx,
+    base_branch: str,
+    instructions_file: Optional[Path],
+) -> int:
+    """
+    Tell Claude to code something on a work tree.
+
+    This command primes Claude to be software developer with an automatically
+    inserted prompt prefix. The provided instructions thus only need to focus on
+    the actual code.
+
+    See claude-do code for coding tasks.
+    """
+
+    if instructions_file is not None:
+        try:
+            instructions = MarkdownInstructions.from_file(instructions_file)
+        except (FileNotFoundError, PermissionError) as e:
+            click.secho(f"Error reading instructions file: {e}", err=True, fg="red")
+            return 1
+    else:
+        if sys.stdin.isatty():
+            click.secho(
+                "Please tell me what you want me to do (Ctrl+D to complete)", bold=True
+            )
+        instructions = MarkdownInstructions(text=sys.stdin.read())
+
+    if not instructions.text:
+        click.secho(
+            "Empty instructions. That's it, I can't work under these conditions!",
+            err=True,
+            fg="red",
+        )
+        return 1
+
+    primer = MarkdownInstructions.from_file(get_builtin_primers_dir() / "code.md")
+    instructions = primer.combine(instructions)
 
     return claude_run(
         base_branch=base_branch,

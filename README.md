@@ -19,19 +19,32 @@ $ uv run claude-do
 
 ## Usage
 
-The primary subcommand is `do` to get Claude to do something.
+The primary subcommands are `code` and `do` to get Claude to do something.
+They are identical but the `code` command primes Claude to be a half-decent
+programmer so you can focus on merely the task instructions.
 
 ```console
-# Instructions via a file
-$ echo "Update all .format() strings with f-strings" > instructions.md
-$ claude-do do --instructions instructions.md
-
-$ claude-do do
+$ claude-do code
 Please tell me what you want me to do (Ctrl+D to complete)
 Update all .format() strings with f-strings
 Working in claude-do/main-2025-11-12-7be3946e (based off main)
 [...]
 My work here is done. Check out branch claude-do/main-2025-11-12-7be3946e
+
+# The same by passing instructions via a file
+$ echo "Update all .format() strings with f-strings" > instructions.md
+$ claude-do code --instructions instructions.md
+[...]
+My work here is done. Check out branch claude-do/main-2025-11-12-abc134fe
+```
+
+The `do` command works exactly the same way but it does not prime Claude
+so you will have to add this to the task (if need be).
+
+```
+# Instructions via a file
+$ echo "You are a native spanish speaker. Translate all strings to Spanish" > instructions.md
+$ claude-do do --instructions instructions.md
 ```
 
 The instructions should be in Markdown. If there is a frontmatter key
