@@ -16,6 +16,28 @@ from typing import Self
 from .cmd import run_command
 
 BRANCH_PREFIX = "papagai"
+LATEST_BRANCH = f"{BRANCH_PREFIX}/latest"
+
+
+def repoint_latest_branch(repo_dir: Path, branch: str) -> None:
+    """
+    Update the papagai/latest branch to point to the specified branch.
+
+    Removes the papagai/latest branch if it exists, then creates it
+    pointing to the same commit as the specified branch.
+
+    Args:
+        repo_dir: Path to the repository root
+        branch: Branch name to point papagai/latest to
+    """
+    try:
+        run_command(
+            ["git", "branch", "-f", LATEST_BRANCH, branch],
+            cwd=repo_dir,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to update {LATEST_BRANCH}: {e}", file=sys.stderr)
 
 
 @dataclass
@@ -95,6 +117,8 @@ class Worktree:
                 print("To clean up manually, run:")
                 print(f"  $ git worktree remove --force {self.branch}")
                 return
+
+            repoint_latest_branch(self.repo_dir, self.branch)
 
             run_command(
                 ["git", "worktree", "remove", "--force", str(self.branch)],
@@ -288,6 +312,8 @@ class WorktreeOverlayFs(Worktree):
                 print(f"  $ fusermount -u {self.mount_dir}")
                 print(f"  $ rm -rf {self.overlay_base_dir}")
                 return
+
+            repoint_latest_branch(self.repo_dir, self.branch)
 
             # Unmount the overlay filesystem
             if self.mount_dir and self.mount_dir.exists():

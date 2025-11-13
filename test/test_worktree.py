@@ -10,7 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from papagai.worktree import BRANCH_PREFIX, Worktree, WorktreeOverlayFs
+from papagai.worktree import (
+    BRANCH_PREFIX,
+    LATEST_BRANCH,
+    Worktree,
+    WorktreeOverlayFs,
+    repoint_latest_branch,
+)
 
 
 @pytest.fixture
@@ -31,6 +37,53 @@ def mock_worktree(mock_git_repo):
         branch=branch,
         repo_dir=mock_git_repo,
     )
+
+
+@pytest.fixture
+def real_git_repo(tmp_path):
+    """Create a real git repository for integration tests."""
+    repo_dir = tmp_path / "test-repo"
+    repo_dir.mkdir()
+
+    # Initialize git repository
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Configure git user for commits
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Create an initial commit
+    test_file = repo_dir / "README.md"
+    test_file.write_text("# Test Repository\n")
+    subprocess.run(
+        ["git", "add", "README.md"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    return repo_dir
 
 
 class TestWorktreeDataclass:
@@ -192,19 +245,25 @@ class TestCleanup:
 
             mock_worktree._cleanup()
 
-            # Should call git diff and git worktree remove
-            assert mock_run.call_count == 2
+            # Should call:
+            # 1. git diff --quiet --exit-code
+            # 3. git branch -f papagai/latest <branch> (from repoint_latest_branch)
+            # 4. git worktree remove
+            assert mock_run.call_count == 3
             calls = mock_run.call_args_list
 
-            # First call: git diff --quiet --exit-code
             assert calls[0][0][0][0] == "git"
             assert calls[0][0][0][1] == "diff"
             assert "--quiet" in calls[0][0][0]
 
-            # Second call: git worktree remove
             assert calls[1][0][0][0] == "git"
-            assert calls[1][0][0][1] == "worktree"
-            assert calls[1][0][0][2] == "remove"
+            assert calls[1][0][0][1] == "branch"
+            assert calls[1][0][0][2] == "-f"
+            assert calls[1][0][0][3] == LATEST_BRANCH
+
+            assert calls[2][0][0][0] == "git"
+            assert calls[2][0][0][1] == "worktree"
+            assert calls[2][0][0][2] == "remove"
 
     def test_cleanup_refuses_with_uncommitted_changes(self, mock_worktree, capsys):
         """Test cleanup refuses to remove worktree with uncommitted changes."""
@@ -310,6 +369,358 @@ class TestCleanup:
 
             # check should be False
             assert remove_call[1]["check"] is False
+
+
+class TestUpdateLatestBranch:
+    """Tests for repoint_latest_branch() function."""
+
+    def test_repoint_latest_branch_creates_new_branch(self, real_git_repo):
+        """Test repoint_latest_branch creates papagai/latest when it doesn't exist."""
+        # Create a test branch
+        test_branch = "papagai/test-branch-123"
+        subprocess.run(
+            ["git", "branch", test_branch],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # Update latest to point to test branch
+        repoint_latest_branch(real_git_repo, test_branch)
+
+        # Verify latest branch exists
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+        # Verify latest points to same commit as test branch
+        latest_commit = subprocess.run(
+            ["git", "rev-parse", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        test_commit = subprocess.run(
+            ["git", "rev-parse", test_branch],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        assert latest_commit == test_commit
+
+    def test_repoint_latest_branch_updates_existing_branch(self, real_git_repo):
+        """Test repoint_latest_branch updates papagai/latest when it already exists."""
+        # Create first test branch and set latest to it
+        branch1 = "papagai/branch-1"
+        subprocess.run(
+            ["git", "branch", branch1],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+        repoint_latest_branch(real_git_repo, branch1)
+
+        # Create a new commit
+        test_file = real_git_repo / "test.txt"
+        test_file.write_text("new content\n")
+        subprocess.run(
+            ["git", "add", "test.txt"],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Add test file"],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create second test branch from new commit
+        branch2 = "papagai/branch-2"
+        subprocess.run(
+            ["git", "branch", branch2],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # Update latest to point to second branch
+        repoint_latest_branch(real_git_repo, branch2)
+
+        # Verify latest now points to branch2's commit
+        latest_commit = subprocess.run(
+            ["git", "rev-parse", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        branch2_commit = subprocess.run(
+            ["git", "rev-parse", branch2],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        assert latest_commit == branch2_commit
+        assert (
+            latest_commit
+            != subprocess.run(
+                ["git", "rev-parse", branch1],
+                cwd=real_git_repo,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+
+    def test_repoint_latest_branch_with_mocked_commands(self, mock_git_repo):
+        """Test repoint_latest_branch calls git commands correctly."""
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
+
+            repoint_latest_branch(mock_git_repo, "papagai/test-branch")
+
+            assert mock_run.call_count == 1
+
+            # git branch -f papagai/latest <branch> (with check=True)
+            second_call = mock_run.call_args_list[0]
+            assert second_call[0][0] == [
+                "git",
+                "branch",
+                "-f",
+                LATEST_BRANCH,
+                "papagai/test-branch",
+            ]
+            assert second_call[1]["cwd"] == mock_git_repo
+            assert second_call[1]["check"] is True
+
+    def test_repoint_latest_branch_handles_errors_gracefully(
+        self, mock_git_repo, capsys
+    ):
+        """Test repoint_latest_branch handles git errors without crashing."""
+        with patch("papagai.worktree.run_command") as mock_run:
+            # Make git branch creation fail
+            def side_effect(cmd, **kwargs):
+                if cmd[0] == "git" and cmd[1] == "branch" and len(cmd) == 5:
+                    raise subprocess.CalledProcessError(1, "git")
+                return MagicMock()
+
+            mock_run.side_effect = side_effect
+
+            # Should not raise, just print warning
+            repoint_latest_branch(mock_git_repo, "test-branch")
+
+            captured = capsys.readouterr()
+            assert "Warning: Failed to update" in captured.err
+            assert LATEST_BRANCH in captured.err
+
+
+@pytest.mark.parametrize("worktree_type", [Worktree, WorktreeOverlayFs])
+class TestWorktreeLatestBranchIntegration:
+    """Integration tests for papagai/latest branch with Worktree."""
+
+    def test_worktree_cleanup_creates_latest_branch(self, real_git_repo, worktree_type):
+        """Test Worktree cleanup creates papagai/latest branch."""
+        with worktree_type.from_branch(
+            real_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+        ) as worktree:
+            # Make a commit so cleanup proceeds
+            test_file = worktree.worktree_dir / "test.txt"
+            test_file.write_text("test content\n")
+            subprocess.run(
+                ["git", "add", "test.txt"],
+                cwd=worktree.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Test commit"],
+                cwd=worktree.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+
+        # After cleanup, papagai/latest should exist
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0
+
+        # Verify latest points to the worktree branch
+        latest_commit = subprocess.run(
+            ["git", "rev-parse", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        worktree_commit = subprocess.run(
+            ["git", "rev-parse", worktree.branch],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        assert latest_commit == worktree_commit
+
+    def test_worktree_cleanup_skips_latest_with_uncommitted_changes(
+        self, real_git_repo, capsys, worktree_type
+    ):
+        """Test Worktree cleanup doesn't create latest when there are uncommitted changes."""
+        # Get the commit hash before creating worktree
+        initial_latest_commit = None
+        if (
+            subprocess.run(
+                ["git", "rev-parse", "--verify", LATEST_BRANCH],
+                cwd=real_git_repo,
+                check=False,
+                capture_output=True,
+            ).returncode
+            == 0
+        ):
+            initial_latest_commit = subprocess.run(
+                ["git", "rev-parse", LATEST_BRANCH],
+                cwd=real_git_repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        with worktree_type.from_branch(
+            real_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+        ) as worktree:
+            # Create uncommitted changes by modifying a tracked file
+            readme_file = worktree.worktree_dir / "README.md"
+            readme_file.write_text("# Modified content\nUncommitted changes\n")
+
+        # After cleanup with uncommitted changes, latest should not be updated
+        # Check that cleanup was refused (warning message should be printed)
+        captured = capsys.readouterr()
+        assert "Changes still present in worktree" in captured.out
+        assert "refusing to clean up" in captured.out
+
+        # If latest existed before, it should still point to the same commit
+        # If it didn't exist before, it should still not exist
+        if initial_latest_commit is not None:
+            current_latest_commit = subprocess.run(
+                ["git", "rev-parse", LATEST_BRANCH],
+                cwd=real_git_repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            # Latest should not have been updated to the new worktree branch
+            assert current_latest_commit == initial_latest_commit
+        else:
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", LATEST_BRANCH],
+                cwd=real_git_repo,
+                check=False,
+                capture_output=True,
+            )
+            # Latest branch should not exist since cleanup was skipped
+            assert result.returncode != 0
+
+    def test_worktree_updates_latest_to_newest_branch(
+        self, real_git_repo, worktree_type
+    ):
+        """Test multiple worktree cleanups update latest to newest branch."""
+        branches = []
+
+        # Create and cleanup first worktree
+        with worktree_type.from_branch(
+            real_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+        ) as worktree1:
+            branches.append(worktree1.branch)
+            test_file = worktree1.worktree_dir / "file1.txt"
+            test_file.write_text("content 1\n")
+            subprocess.run(
+                ["git", "add", "file1.txt"],
+                cwd=worktree1.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Commit 1"],
+                cwd=worktree1.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+
+        # Verify latest points to first branch
+        latest_commit = subprocess.run(
+            ["git", "rev-parse", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        branch1_commit = subprocess.run(
+            ["git", "rev-parse", branches[0]],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        assert latest_commit == branch1_commit
+
+        # Create and cleanup second worktree
+        with worktree_type.from_branch(
+            real_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+        ) as worktree2:
+            branches.append(worktree2.branch)
+            test_file = worktree2.worktree_dir / "file2.txt"
+            test_file.write_text("content 2\n")
+            subprocess.run(
+                ["git", "add", "file2.txt"],
+                cwd=worktree2.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Commit 2"],
+                cwd=worktree2.worktree_dir,
+                check=True,
+                capture_output=True,
+            )
+
+        # Verify latest now points to second branch
+        latest_commit = subprocess.run(
+            ["git", "rev-parse", LATEST_BRANCH],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        branch2_commit = subprocess.run(
+            ["git", "rev-parse", branches[1]],
+            cwd=real_git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        assert latest_commit == branch2_commit
 
 
 class TestIntegration:
