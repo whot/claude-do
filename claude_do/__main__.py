@@ -5,7 +5,7 @@
 
 import sys
 
-from .cli import main
+from .cli import claude_do
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(claude_do())

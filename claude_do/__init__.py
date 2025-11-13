@@ -5,6 +5,6 @@
 
 __version__ = "0.1.0"
 
-from .cli import main
+from .cli import claude_do
 
-__all__ = ["main"]
+__all__ = ["claude_do"]

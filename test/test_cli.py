@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from claude_do.cli import (
     get_branch,
     purge_branches,
-    main,
+    claude_do,
     BRANCH_PREFIX,
 )
 
@@ -316,7 +316,7 @@ Do something interesting.
 
     def test_main_help(self, runner):
         """Test main command --help."""
-        result = runner.invoke(main, ["--help"])
+        result = runner.invoke(claude_do, ["--help"])
         assert result.exit_code == 0
         assert "Claude-do: Automate code changes with Claude AI" in result.output
         assert "do" in result.output
@@ -326,7 +326,7 @@ Do something interesting.
 
     def test_main_dry_run_flag(self, runner):
         """Test --dry-run flag is recognized."""
-        result = runner.invoke(main, ["--dry-run", "--help"])
+        result = runner.invoke(claude_do, ["--dry-run", "--help"])
         assert result.exit_code == 0
         assert "--dry-run" in result.output
 
@@ -356,7 +356,7 @@ Do something interesting.
 
     def test_do_help(self, runner):
         """Test 'do' command --help."""
-        result = runner.invoke(main, ["do", "--help"])
+        result = runner.invoke(claude_do, ["do", "--help"])
         assert result.exit_code == 0
         assert "Tell Claude to do something on a work tree" in result.output
         assert "--base-branch" in result.output
@@ -364,22 +364,22 @@ Do something interesting.
 
     def test_do_with_instructions_file(self, runner, mock_instructions_file):
         """Test 'do' command with instructions file."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
             result = runner.invoke(
-                main, ["do", "--instructions", str(mock_instructions_file)]
+                claude_do, ["do", "--instructions", str(mock_instructions_file)]
             )
 
             # Should call claude_do with the instructions
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_do_with_nonexistent_instructions_file(self, runner, tmp_path):
         """Test 'do' command with non-existent instructions file."""
         nonexistent = tmp_path / "nonexistent.md"
 
-        result = runner.invoke(main, ["do", "--instructions", str(nonexistent)])
+        result = runner.invoke(claude_do, ["do", "--instructions", str(nonexistent)])
 
         # Click returns exit code 2 for validation errors
         assert result.exit_code == 2
@@ -387,11 +387,11 @@ Do something interesting.
 
     def test_do_with_base_branch(self, runner, mock_instructions_file):
         """Test 'do' command with custom base branch."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
             result = runner.invoke(
-                main,
+                claude_do,
                 [
                     "do",
                     "--base-branch",
@@ -402,44 +402,44 @@ Do something interesting.
             )
 
             # Should call claude_do with develop as base_branch
-            mock_claude_do.assert_called_once()
-            call_kwargs = mock_claude_do.call_args
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
             assert call_kwargs[1]["base_branch"] == "develop"
             assert result.exit_code == 0
 
     def test_do_with_stdin_input(self, runner):
         """Test 'do' command with stdin input."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
             result = runner.invoke(
-                main, ["do"], input="Fix all the bugs\n", catch_exceptions=False
+                claude_do, ["do"], input="Fix all the bugs\n", catch_exceptions=False
             )
 
             # Should call claude_do with stdin instructions
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_do_with_empty_stdin(self, runner):
         """Test 'do' command with empty stdin."""
-        result = runner.invoke(main, ["do"], input="")
+        result = runner.invoke(claude_do, ["do"], input="")
 
         # Command shows error message
         assert "Empty instructions" in result.output
 
     def test_do_with_dry_run(self, runner, mock_instructions_file):
         """Test 'do' command with --dry-run flag."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
             result = runner.invoke(
-                main,
+                claude_do,
                 ["--dry-run", "do", "--instructions", str(mock_instructions_file)],
             )
 
             # Should call claude_do with dry_run=True
-            mock_claude_do.assert_called_once()
-            call_kwargs = mock_claude_do.call_args
+            mock_claude_run.assert_called_once()
+            call_kwargs = mock_claude_run.call_args
             assert call_kwargs[1]["dry_run"] is True
             assert result.exit_code == 0
 
@@ -454,14 +454,14 @@ class TestPurgeCommand:
 
     def test_purge_help(self, runner):
         """Test 'purge' command --help."""
-        result = runner.invoke(main, ["purge", "--help"])
+        result = runner.invoke(claude_do, ["purge", "--help"])
         assert result.exit_code == 0
         assert "Delete all existing claude-do branches" in result.output
 
     def test_purge_success(self, runner):
         """Test 'purge' command succeeds."""
         with patch("claude_do.cli.purge_branches") as mock_purge:
-            result = runner.invoke(main, ["purge"])
+            result = runner.invoke(claude_do, ["purge"])
 
             mock_purge.assert_called_once()
             assert result.exit_code == 0
@@ -471,7 +471,7 @@ class TestPurgeCommand:
         with patch("claude_do.cli.purge_branches") as mock_purge:
             mock_purge.side_effect = subprocess.CalledProcessError(1, "git")
 
-            result = runner.invoke(main, ["purge"])
+            result = runner.invoke(claude_do, ["purge"])
 
             # Command catches exception and shows error message
             assert "Error purging done branches" in result.output
@@ -487,7 +487,7 @@ class TestTaskCommand:
 
     def test_task_help(self, runner):
         """Test 'task' command --help."""
-        result = runner.invoke(main, ["task", "--help"])
+        result = runner.invoke(claude_do, ["task", "--help"])
         assert result.exit_code == 0
         assert "Run a pre-written task" in result.output
         assert "--list" in result.output
@@ -495,20 +495,20 @@ class TestTaskCommand:
 
     def test_task_list(self, runner):
         """Test 'task --list' shows available tasks."""
-        result = runner.invoke(main, ["task", "--list"])
+        result = runner.invoke(claude_do, ["task", "--list"])
         assert result.exit_code == 0
         # Should show at least some tasks
         assert len(result.output) > 0
 
     def test_task_without_args(self, runner):
         """Test 'task' without arguments shows error."""
-        result = runner.invoke(main, ["task"])
+        result = runner.invoke(claude_do, ["task"])
         # Command shows error message
-        assert "Either provide TASK or use --list" in result.output
+        assert "Error: missing task name" in result.output
 
     def test_task_with_valid_task(self, runner):
         """Test 'task' with a valid task name."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -524,13 +524,13 @@ class TestTaskCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
                     result = runner.invoke(
-                        main, ["task", "generic/review"], catch_exceptions=False
+                        claude_do, ["task", "generic/review"], catch_exceptions=False
                     )
 
-                    mock_claude_do.assert_called_once()
+                    mock_claude_run.assert_called_once()
                     assert result.exit_code == 0
 
     def test_task_with_nonexistent_task(self, runner):
@@ -545,14 +545,14 @@ class TestTaskCommand:
             mock_task_file.exists.return_value = False
             mock_dir.__truediv__.return_value = mock_task_file
 
-            result = runner.invoke(main, ["task", "nonexistent/task"])
+            result = runner.invoke(claude_do, ["task", "nonexistent/task"])
 
             # Command shows error message
             assert "Task 'nonexistent/task' not found" in result.output
 
     def test_task_with_base_branch(self, runner):
         """Test 'task' with custom base branch."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -568,22 +568,22 @@ class TestTaskCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
                     result = runner.invoke(
-                        main,
+                        claude_do,
                         ["task", "--base-branch", "develop", "generic/review"],
                     )
 
                     # Should call claude_do with develop as base_branch
-                    mock_claude_do.assert_called_once()
-                    call_kwargs = mock_claude_do.call_args
+                    mock_claude_run.assert_called_once()
+                    call_kwargs = mock_claude_run.call_args
                     assert call_kwargs[1]["base_branch"] == "develop"
                     assert result.exit_code == 0
 
     def test_task_with_dry_run(self, runner):
         """Test 'task' with --dry-run flag."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -599,15 +599,15 @@ class TestTaskCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
                     result = runner.invoke(
-                        main, ["--dry-run", "task", "generic/review"]
+                        claude_do, ["--dry-run", "task", "generic/review"]
                     )
 
                     # Should call claude_do with dry_run=True
-                    mock_claude_do.assert_called_once()
-                    call_kwargs = mock_claude_do.call_args
+                    mock_claude_run.assert_called_once()
+                    call_kwargs = mock_claude_run.call_args
                     assert call_kwargs[1]["dry_run"] is True
                     assert result.exit_code == 0
 
@@ -622,7 +622,7 @@ class TestReviewCommand:
 
     def test_review_help(self, runner):
         """Test 'review' command --help."""
-        result = runner.invoke(main, ["review", "--help"])
+        result = runner.invoke(claude_do, ["review", "--help"])
         assert result.exit_code == 0
         assert "Run a code review on the current branch" in result.output
         assert "generic/review" in result.output
@@ -630,7 +630,7 @@ class TestReviewCommand:
 
     def test_review_success(self, runner):
         """Test 'review' command succeeds."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -646,16 +646,16 @@ class TestReviewCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
-                    result = runner.invoke(main, ["review"])
+                    result = runner.invoke(claude_do, ["review"])
 
-                    mock_claude_do.assert_called_once()
+                    mock_claude_run.assert_called_once()
                     assert result.exit_code == 0
 
     def test_review_with_base_branch(self, runner):
         """Test 'review' command with custom base branch."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -671,21 +671,21 @@ class TestReviewCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
                     result = runner.invoke(
-                        main, ["review", "--base-branch", "develop"]
+                        claude_do, ["review", "--base-branch", "develop"]
                     )
 
                     # Should call claude_do with develop as base_branch
-                    mock_claude_do.assert_called_once()
-                    call_kwargs = mock_claude_do.call_args
+                    mock_claude_run.assert_called_once()
+                    call_kwargs = mock_claude_run.call_args
                     assert call_kwargs[1]["base_branch"] == "develop"
                     assert result.exit_code == 0
 
     def test_review_with_dry_run(self, runner):
         """Test 'review' command with --dry-run flag."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -701,13 +701,13 @@ class TestReviewCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
-                    result = runner.invoke(main, ["--dry-run", "review"])
+                    result = runner.invoke(claude_do, ["--dry-run", "review"])
 
                     # Should call claude_do with dry_run=True
-                    mock_claude_do.assert_called_once()
-                    call_kwargs = mock_claude_do.call_args
+                    mock_claude_run.assert_called_once()
+                    call_kwargs = mock_claude_run.call_args
                     assert call_kwargs[1]["dry_run"] is True
                     assert result.exit_code == 0
 
@@ -723,14 +723,14 @@ class TestReviewCommand:
         with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
             mock_get_dir.return_value = fake_instructions_dir
 
-            result = runner.invoke(main, ["review"])
+            result = runner.invoke(claude_do, ["review"])
 
             # Command shows error message
             assert "Review task not found" in result.output
 
     def test_review_equivalent_to_task(self, runner):
         """Test 'review' calls same code as 'task generic/review'."""
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch("claude_do.cli.get_builtin_tasks_dir") as mock_get_dir:
                 # Create a mock instructions directory
                 mock_dir = MagicMock()
@@ -746,20 +746,22 @@ class TestReviewCommand:
                 ) as mock_from_file:
                     mock_instructions = MagicMock()
                     mock_from_file.return_value = mock_instructions
-                    mock_claude_do.return_value = 0
+                    mock_claude_run.return_value = 0
 
                     # Run review command
-                    result1 = runner.invoke(main, ["review", "--base-branch", "main"])
-                    review_call = mock_claude_do.call_args
+                    result1 = runner.invoke(
+                        claude_do, ["review", "--base-branch", "main"]
+                    )
+                    review_call = mock_claude_run.call_args
 
                     # Reset mock
-                    mock_claude_do.reset_mock()
+                    mock_claude_run.reset_mock()
 
                     # Run task command
                     result2 = runner.invoke(
-                        main, ["task", "--base-branch", "main", "generic/review"]
+                        claude_do, ["task", "--base-branch", "main", "generic/review"]
                     )
-                    task_call = mock_claude_do.call_args
+                    task_call = mock_claude_run.call_args
 
                     # Both should call claude_do with same arguments
                     assert result1.exit_code == 0

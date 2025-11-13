@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 [project.scripts]
-claude-do = "claude_do:main"
+claude-do = "claude_do:claude_do"
 
 [project.urls]
 Homepage = "https://github.com/whot/claude-instructions"

@@ -125,7 +125,7 @@ def run_claude(
         raise
 
 
-def claude_do(base_branch: str,
+def claude_run(base_branch: str,
               instructions: MarkdownInstructions,
               dry_run: bool,
               branch_prefix: str = ""
@@ -238,13 +238,13 @@ def list_all_tasks() -> int:
     help="Show the claude command that would be executed without running it",
 )
 @click.pass_context
-def main(ctx, dry_run: bool):
+def claude_do(ctx, dry_run: bool):
     """Claude-do: Automate code changes with Claude AI on git worktrees."""
     # Store context object for subcommands
     ctx.obj = Context(dry_run=dry_run)
 
 
-@main.command("do")
+@claude_do.command("do")
 @click.option(
     "--base-branch",
     default="HEAD",
@@ -258,7 +258,7 @@ def main(ctx, dry_run: bool):
     help="The instructions file - if None use stdin",
 )
 @click.pass_context
-def do(
+def cmd_do(
     ctx,
     base_branch: str,
     instructions_file: Optional[Path],
@@ -284,15 +284,15 @@ def do(
         click.secho("Empty instructions. That's it, I can't work under these conditions!", err=True, fg="red")
         return 1
 
-    return claude_do(
+    return claude_run(
         base_branch=base_branch,
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
     )
 
 
-@main.command()
-def purge() -> int:
+@claude_do.command("purge")
+def cmd_purge() -> int:
     """Delete all existing claude-do branches."""
     repo_dir = Path.cwd().resolve()
     if not repo_dir.is_dir():
@@ -307,7 +307,7 @@ def purge() -> int:
     return 0
 
 
-@main.command("task")
+@claude_do.command("task")
 @click.option(
     "--list",
     "list_tasks",
@@ -321,7 +321,7 @@ def purge() -> int:
 )
 @click.argument("task_name", required=False)
 @click.pass_context
-def task(
+def cmd_task(
     ctx,
     list_tasks: bool,
     base_branch: str,
@@ -375,21 +375,21 @@ def task(
         click.secho(f"Error reading instructions file: {e}", err=True, fg="red")
         return 1
 
-    return claude_do(
+    return claude_run(
         base_branch=base_branch,
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
     )
 
 
-@main.command("review")
+@claude_do.command("review")
 @click.option(
     "--base-branch",
     default="HEAD",
     help="Branch to base the work on (default: current branch)",
 )
 @click.pass_context
-def review(
+def cmd_review(
     ctx,
     base_branch: str,
 ) -> int:
@@ -423,7 +423,7 @@ def review(
         click.secho(f"Error reading review instructions: {e}", err=True, fg="red")
         return 1
 
-    return claude_do(
+    return claude_run(
         base_branch=base_branch,
         instructions=instructions,
         dry_run=ctx.obj.dry_run,
@@ -432,4 +432,4 @@ def review(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(claude_do())

@@ -15,7 +15,7 @@ from claude_do.cli import (
     get_builtin_tasks_dir,
     get_xdg_task_dir,
     list_all_tasks,
-    main,
+    claude_do,
 )
 
 
@@ -353,13 +353,13 @@ Do something custom.
 """
         )
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "custom-task"])
+            result = runner.invoke(claude_do, ["task", "custom-task"])
 
             # Should successfully load and execute the task
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_task_xdg_takes_precedence_over_builtin(self, runner, setup_xdg_tasks):
@@ -378,16 +378,16 @@ This is my custom review.
 """
         )
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch(
                 "claude_do.cli.MarkdownInstructions.from_file"
             ) as mock_from_file:
                 mock_instructions = MagicMock()
                 mock_instructions.text = "This is my custom review."
                 mock_from_file.return_value = mock_instructions
-                mock_claude_do.return_value = 0
+                mock_claude_run.return_value = 0
 
-                result = runner.invoke(main, ["task", "generic/review"])
+                result = runner.invoke(claude_do, ["task", "generic/review"])
 
                 # Should load the XDG version
                 mock_from_file.assert_called_once()
@@ -400,13 +400,13 @@ This is my custom review.
         """Test 'task' falls back to built-in tasks if not in XDG."""
         # Don't create any XDG tasks, just use built-in
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "generic/review"])
+            result = runner.invoke(claude_do, ["task", "generic/review"])
 
             # Should load the built-in task
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_task_with_xdg_subdirectories(self, runner, setup_xdg_tasks):
@@ -425,20 +425,20 @@ Run ruff on all Python files.
 """
         )
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "python/linting/ruff"])
+            result = runner.invoke(claude_do, ["task", "python/linting/ruff"])
 
             # Should successfully load the nested task
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_task_with_nonexistent_xdg_task(self, runner, setup_xdg_tasks):
         """Test 'task' command with non-existent XDG task."""
         # Create XDG directory but no tasks
 
-        result = runner.invoke(main, ["task", "nonexistent/task"])
+        result = runner.invoke(claude_do, ["task", "nonexistent/task"])
 
         # Should show error message
         assert "Task 'nonexistent/task' not found" in result.output
@@ -458,7 +458,7 @@ Content.
 """
         )
 
-        result = runner.invoke(main, ["task", "--list"])
+        result = runner.invoke(claude_do, ["task", "--list"])
 
         assert result.exit_code == 0
         assert "my-task" in result.output
@@ -479,7 +479,7 @@ Content.
         restricted_task.chmod(0o000)
 
         try:
-            result = runner.invoke(main, ["task", "restricted"])
+            result = runner.invoke(claude_do, ["task", "restricted"])
 
             # Should show error message about reading the file
             assert "Error reading" in result.output or result.exit_code != 0
@@ -491,13 +491,13 @@ Content.
         """Test 'task' works when XDG_CONFIG_HOME is not set."""
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "generic/review"])
+            result = runner.invoke(claude_do, ["task", "generic/review"])
 
             # Should still work with built-in tasks
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
 
@@ -551,16 +551,16 @@ Unique content.
 """
         )
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
             with patch(
                 "claude_do.cli.MarkdownInstructions.from_file"
             ) as mock_from_file:
                 mock_instructions = MagicMock()
                 mock_from_file.return_value = mock_instructions
-                mock_claude_do.return_value = 0
+                mock_claude_run.return_value = 0
 
                 # Test loading the shadowed task
-                result1 = runner.invoke(main, ["task", "generic/review"])
+                result1 = runner.invoke(claude_do, ["task", "generic/review"])
                 assert result1.exit_code == 0
 
                 # Verify XDG version was loaded (not built-in)
@@ -571,7 +571,7 @@ Unique content.
                 mock_from_file.reset_mock()
 
                 # Test loading the unique XDG task
-                result2 = runner.invoke(main, ["task", "unique-task"])
+                result2 = runner.invoke(claude_do, ["task", "unique-task"])
                 assert result2.exit_code == 0
 
                 called_path = mock_from_file.call_args[0][0]
@@ -602,7 +602,7 @@ Content.
 """
         )
 
-        result = runner.invoke(main, ["task", "--list"])
+        result = runner.invoke(claude_do, ["task", "--list"])
 
         assert result.exit_code == 0
         # Should show XDG tasks
@@ -615,13 +615,13 @@ Content.
         """Test that empty XDG directory doesn't prevent loading built-in tasks."""
         # XDG directory exists but is empty
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "generic/review"])
+            result = runner.invoke(claude_do, ["task", "generic/review"])
 
             # Should successfully load built-in task
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
 
     def test_task_with_complex_directory_structure(
@@ -645,10 +645,10 @@ Run pytest on all test files.
 """
         )
 
-        with patch("claude_do.cli.claude_do") as mock_claude_do:
-            mock_claude_do.return_value = 0
+        with patch("claude_do.cli.claude_run") as mock_claude_run:
+            mock_claude_run.return_value = 0
 
-            result = runner.invoke(main, ["task", "lang/python/testing/pytest"])
+            result = runner.invoke(claude_do, ["task", "lang/python/testing/pytest"])
 
-            mock_claude_do.assert_called_once()
+            mock_claude_run.assert_called_once()
             assert result.exit_code == 0
