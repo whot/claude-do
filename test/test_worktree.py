@@ -527,6 +527,7 @@ class TestUpdateLatestBranch:
             assert LATEST_BRANCH in captured.err
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 @pytest.mark.parametrize("worktree_type", [Worktree, WorktreeOverlayFs])
 class TestWorktreeLatestBranchIntegration:
     """Integration tests for papagai/latest branch with Worktree."""
@@ -742,6 +743,7 @@ class TestIntegration:
             assert mock_run.call_count >= 2
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 class TestWorktreeOverlayFsDataclass:
     """Tests for WorktreeOverlayFs dataclass structure."""
 
@@ -782,10 +784,10 @@ class TestWorktreeOverlayFsDataclass:
         assert overlay_fs.mount_dir is None
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 class TestOverlayFsFromBranch:
     """Tests for WorktreeOverlayFs.from_branch() classmethod."""
 
-    @patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
     def test_from_branch_creates_cache_directory_structure(self, mock_git_repo):
         """Test from_branch creates proper directory structure in cache."""
         with patch("papagai.worktree.run_command") as mock_run:
@@ -802,19 +804,22 @@ class TestOverlayFsFromBranch:
             )
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_from_branch_uses_home_cache_when_xdg_not_set(self, mock_git_repo):
+    def test_from_branch_uses_home_cache_when_xdg_not_set(
+        self, mock_git_repo, tmp_path
+    ):
         """Test from_branch falls back to ~/.cache when XDG_CACHE_HOME not set."""
         # Remove XDG_CACHE_HOME if it exists
         os.environ.pop("XDG_CACHE_HOME", None)
 
-        with patch("papagai.worktree.run_command") as mock_run:
-            mock_run.return_value = MagicMock()
+        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
 
-            overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
 
-            # Should use ~/.cache
-            expected_prefix = str(Path.home() / ".cache" / "papagai")
-            assert str(overlay_fs.overlay_base_dir).startswith(expected_prefix)
+                # Should use ~/.cache
+                expected_prefix = str(Path.home() / ".cache" / "papagai")
+                assert str(overlay_fs.overlay_base_dir).startswith(expected_prefix)
 
     def test_from_branch_creates_overlay_subdirectories(self, mock_git_repo, tmp_path):
         """Test from_branch creates upperdir, workdir, and mounted subdirectories."""
@@ -968,6 +973,7 @@ class TestOverlayFsFromBranch:
                 assert overlay_fs1.overlay_base_dir != overlay_fs2.overlay_base_dir
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 class TestOverlayFsCleanup:
     """Tests for WorktreeOverlayFs._cleanup() method."""
 
@@ -1114,29 +1120,28 @@ class TestOverlayFsCleanup:
             assert "Warning during cleanup" in captured.err
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 class TestOverlayFsContextManager:
     """Tests for WorktreeOverlayFs context manager functionality."""
 
     def test_context_manager_calls_cleanup_on_exit(self, mock_git_repo, tmp_path):
         """Test context manager calls cleanup on exit."""
-        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
-            with patch("papagai.worktree.run_command") as mock_run:
-                mock_run.return_value = MagicMock()
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
 
-                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+            overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
 
-            with patch.object(overlay_fs, "_cleanup") as mock_cleanup:
-                with overlay_fs as wt:
-                    assert wt is overlay_fs
-                mock_cleanup.assert_called_once()
+        with patch.object(overlay_fs, "_cleanup") as mock_cleanup:
+            with overlay_fs as wt:
+                assert wt is overlay_fs
+            mock_cleanup.assert_called_once()
 
     def test_context_manager_cleanup_on_exception(self, mock_git_repo, tmp_path):
         """Test cleanup is called even when exception occurs in with block."""
-        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
-            with patch("papagai.worktree.run_command") as mock_run:
-                mock_run.return_value = MagicMock()
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
 
-                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+            overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
 
         with patch.object(overlay_fs, "_cleanup") as mock_cleanup:
             try:
@@ -1147,30 +1152,30 @@ class TestOverlayFsContextManager:
             mock_cleanup.assert_called_once()
 
 
+@patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
 class TestOverlayFsIntegration:
     """Integration tests for WorktreeOverlayFs."""
 
     def test_full_workflow_with_context_manager(self, mock_git_repo, tmp_path):
         """Test complete workflow: create, use, cleanup."""
-        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
-            with patch("papagai.worktree.run_command") as mock_run:
-                mock_run.return_value = MagicMock()
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
 
-                with WorktreeOverlayFs.from_branch(
-                    mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
-                ) as overlay_fs:
-                    # Verify overlay was created
-                    assert overlay_fs.branch.startswith(f"{BRANCH_PREFIX}/main")
-                    assert overlay_fs.repo_dir == mock_git_repo
-                    assert overlay_fs.worktree_dir == overlay_fs.mount_dir
-                    assert overlay_fs.overlay_base_dir is not None
+            with WorktreeOverlayFs.from_branch(
+                mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+            ) as overlay_fs:
+                # Verify overlay was created
+                assert overlay_fs.branch.startswith(f"{BRANCH_PREFIX}/main")
+                assert overlay_fs.repo_dir == mock_git_repo
+                assert overlay_fs.worktree_dir == overlay_fs.mount_dir
+                assert overlay_fs.overlay_base_dir is not None
 
-                # Verify mount and unmount were called
-                mount_calls = [
-                    c for c in mock_run.call_args_list if c[0][0][0] == "fuse-overlayfs"
-                ]
-                unmount_calls = [
-                    c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
-                ]
-                assert len(mount_calls) == 1
-                assert len(unmount_calls) == 1
+            # Verify mount and unmount were called
+            mount_calls = [
+                c for c in mock_run.call_args_list if c[0][0][0] == "fuse-overlayfs"
+            ]
+            unmount_calls = [
+                c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+            ]
+            assert len(mount_calls) == 1
+            assert len(unmount_calls) == 1
