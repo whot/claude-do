@@ -210,6 +210,93 @@ tags: python, testing
     assert md.frontmatter["tags"] == "python, testing"
 
 
+# Tests for Markdown.from_string
+
+
+def test_markdown_from_string_simple():
+    """Test Markdown.from_string with simple frontmatter."""
+    content = """---
+description: A simple description
+author: John Doe
+---
+
+# Content here
+"""
+    md = Markdown.from_string(content)
+
+    assert md.frontmatter == {
+        "description": "A simple description",
+        "author": "John Doe",
+    }
+    assert md.text == "\n# Content here\n"
+
+
+def test_markdown_from_string_no_frontmatter():
+    """Test Markdown.from_string without frontmatter."""
+    content = """# Just a regular markdown file
+
+No frontmatter here.
+"""
+    md = Markdown.from_string(content)
+
+    assert md.frontmatter == {}
+    assert md.text == content
+
+
+def test_markdown_from_string_multiline_value():
+    """Test Markdown.from_string with multi-line values."""
+    content = """---
+description: This is a long description
+  that spans multiple lines
+  and should be preserved
+title: Short Title
+---
+
+# Content
+"""
+    md = Markdown.from_string(content)
+
+    assert "description" in md.frontmatter
+    assert "that spans multiple lines" in md.frontmatter["description"]
+    assert md.frontmatter["title"] == "Short Title"
+    assert md.text == "\n# Content\n"
+
+
+def test_markdown_from_string_empty():
+    """Test Markdown.from_string with empty string."""
+    content = ""
+    md = Markdown.from_string(content)
+
+    assert md.frontmatter == {}
+    assert md.text == ""
+
+
+def test_markdown_from_string_no_closing_delimiter():
+    """Test Markdown.from_string with no closing delimiter."""
+    content = """---
+description: test
+"""
+    md = Markdown.from_string(content)
+
+    # Should return empty dict as there's no closing delimiter
+    assert md.frontmatter == {}
+    # Text should contain full content since frontmatter is incomplete
+    assert md.text == content
+
+
+def test_markdown_from_string_colon_in_value():
+    """Test Markdown.from_string with colons in values."""
+    content = """---
+description: This is a description: with colons: in it
+url: https://example.com:8080/path
+---
+"""
+    md = Markdown.from_string(content)
+
+    assert md.frontmatter["description"] == "This is a description: with colons: in it"
+    assert md.frontmatter["url"] == "https://example.com:8080/path"
+
+
 # Tests for MarkdownInstructions
 
 
@@ -370,3 +457,121 @@ tools: Bash(git:*), WebFetch(https://example.com)
     md = MarkdownInstructions.from_file(md_file)
 
     assert md.tools == ["Bash(git:*)", "WebFetch(https://example.com)"]
+
+
+# Tests for MarkdownInstructions.from_string
+
+
+def test_markdown_instructions_from_string_simple():
+    """Test MarkdownInstructions.from_string with simple frontmatter."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = """---
+description: A simple description
+tools: Bash(npm:*)
+---
+
+# Content here
+"""
+    md = MarkdownInstructions.from_string(content)
+
+    assert md.description == "A simple description"
+    assert md.tools == ["Bash(npm:*)"]
+    assert md.text == "\n# Content here\n"
+
+
+def test_markdown_instructions_from_string_no_frontmatter():
+    """Test MarkdownInstructions.from_string with no frontmatter."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = "# Just a regular markdown file\n\nNo frontmatter here."
+    md = MarkdownInstructions.from_string(content)
+
+    assert md.description == ""
+    assert md.tools == []
+    assert md.text == content
+
+
+def test_markdown_instructions_from_string_multiple_tools():
+    """Test MarkdownInstructions.from_string with multiple tools."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = """---
+description: Test description
+tools: Bash(npm:*), Read(*.js), Write(*.ts)
+---
+
+# Content here
+"""
+    md = MarkdownInstructions.from_string(content)
+
+    assert md.description == "Test description"
+    assert md.tools == ["Bash(npm:*)", "Read(*.js)", "Write(*.ts)"]
+
+
+def test_markdown_instructions_from_string_empty():
+    """Test MarkdownInstructions.from_string with empty string."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = ""
+    md = MarkdownInstructions.from_string(content)
+
+    assert md.description == ""
+    assert md.tools == []
+    assert md.text == ""
+
+
+def test_markdown_instructions_from_string_multiline_description():
+    """Test MarkdownInstructions.from_string with multiline description."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = """---
+description: This is a long description
+  that spans multiple lines
+  and should be preserved
+tools: Bash(git:*)
+---
+
+# Content
+"""
+    md = MarkdownInstructions.from_string(content)
+
+    assert "that spans multiple lines" in md.description
+    assert md.tools == ["Bash(git:*)"]
+
+
+def test_markdown_instructions_from_string_no_closing_delimiter():
+    """Test MarkdownInstructions.from_string with no closing delimiter."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = """---
+description: test
+tools: Bash(npm:*)
+"""
+    md = MarkdownInstructions.from_string(content)
+
+    # Should return empty frontmatter as there's no closing delimiter
+    assert md.description == ""
+    assert md.tools == []
+    assert md.text == content
+
+
+def test_markdown_instructions_from_string_complex_tools():
+    """Test MarkdownInstructions.from_string with complex tool patterns."""
+    from claude_do.markdown import MarkdownInstructions
+
+    content = """---
+description: Test description
+tools: Bash(git:*), Glob(**/*.py), Grep(*.{js,ts}), Edit(./**/*)
+---
+
+# Content here
+"""
+    md = MarkdownInstructions.from_string(content)
+
+    assert md.tools == [
+        "Bash(git:*)",
+        "Glob(**/*.py)",
+        "Grep(*.{js,ts})",
+        "Edit(./**/*)",
+    ]

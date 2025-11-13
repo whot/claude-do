@@ -6,6 +6,7 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
 # Regex pattern for frontmatter key: value pairs
 # Matches: key_name: value
@@ -25,7 +26,62 @@ class Markdown:
     text: str = ""
 
     @classmethod
-    def from_file(cls, file_path: Path) -> "Markdown":
+    def from_string(cls, content: str) -> Self:
+        """
+        Parse a markdown string and extract frontmatter.
+
+        Frontmatter is delimited by --- at the start and end, and contains
+        key: value pairs that may span multiple lines.
+
+        Args:
+            content: Markdown content as a string
+
+        Returns:
+            Markdown instance with parsed frontmatter
+        """
+        lines = content.split("\n")
+
+        # Check if content starts with ---
+        if not lines or lines[0].strip() != "---":
+            return cls(frontmatter={}, text=content)
+
+        # Find the closing ---
+        current_key = None
+        current_value = []
+
+        frontmatter = {}
+        text = content  # Default to full content if no closing --- found
+
+        for idx, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                # End of frontmatter
+                if current_key:
+                    frontmatter[current_key] = "\n".join(current_value).strip()
+                text = "\n".join(lines[idx + 1 :])
+                break
+
+            # Check if this is a key: value line using regex
+            match = KEY_VALUE_PATTERN.match(line)
+            if match:
+                # Save previous key-value if exists
+                if current_key:
+                    frontmatter[current_key] = "\n".join(current_value).strip()
+
+                # Start new key-value
+                current_key = match.group(1)
+                current_value = [match.group(2)]
+            elif current_key:
+                # Continuation of multi-line value
+                current_value.append(line)
+        else:
+            # No closing --- found, reset to empty frontmatter
+            frontmatter = {}
+            text = content
+
+        return cls(frontmatter=frontmatter, text=text)
+
+    @classmethod
+    def from_file(cls, file_path: Path) -> Self:
         """
         Parse a markdown file and extract frontmatter.
 
@@ -43,39 +99,7 @@ class Markdown:
             PermissionError: If the file cannot be read
         """
         content = file_path.read_text()
-        lines = content.split("\n")
-
-        # Check if file starts with ---
-        if not lines or lines[0].strip() != "---":
-            return cls(frontmatter={}, text=content)
-
-        # Find the closing ---
-        current_key = None
-        current_value = []
-
-        frontmatter = {}
-        for idx, line in enumerate(lines[1:], 1):
-            if line.strip() == "---":
-                # End of frontmatter
-                if current_key:
-                    frontmatter[current_key] = "\n".join(current_value).strip()
-                return cls(frontmatter=frontmatter, text="\n".join(lines[idx + 1 :]))
-
-            # Check if this is a key: value line using regex
-            match = KEY_VALUE_PATTERN.match(line)
-            if match:
-                # Save previous key-value if exists
-                if current_key:
-                    frontmatter[current_key] = "\n".join(current_value).strip()
-
-                # Start new key-value
-                current_key = match.group(1)
-                current_value = [match.group(2)]
-            elif current_key:
-                # Continuation of multi-line value
-                current_value.append(line)
-        else:
-            return cls(frontmatter={}, text=content)
+        return cls.from_string(content)
 
 
 @dataclass
@@ -92,6 +116,37 @@ class MarkdownInstructions(Markdown):
 
     description: str = ""
     tools: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_string(cls, content: str) -> "MarkdownInstructions":
+        """
+        Parse a markdown string and extract instructions frontmatter.
+
+        Parses the description and tools from the frontmatter.
+        Tools are comma-separated, but commas inside parentheses/braces are preserved.
+
+        Args:
+            content: Markdown content as a string
+
+        Returns:
+            MarkdownInstructions instance with parsed frontmatter and fields
+        """
+        # First parse the base frontmatter
+        base = Markdown.from_string(content)
+
+        # Extract description
+        description = base.frontmatter.get("description", "")
+
+        # Extract and parse tools
+        tools_str = base.frontmatter.get("tools", "")
+        tools = cls._parse_tools(tools_str)
+
+        return cls(
+            frontmatter=base.frontmatter,
+            text=base.text,
+            description=description,
+            tools=tools,
+        )
 
     @classmethod
     def from_file(cls, file_path: Path) -> "MarkdownInstructions":
