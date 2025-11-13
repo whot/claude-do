@@ -3,6 +3,7 @@
 
 """Git worktree management for papagai."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -117,5 +118,188 @@ class Worktree:
                 except OSError:
                     # Directory not empty or other error, stop cleanup
                     break
+        except Exception as e:
+            print(f"Warning during cleanup: {e}", file=sys.stderr)
+
+
+@dataclass
+class WorktreeOverlayFs(Worktree):
+    """
+    Git worktree using overlay filesystem (fuse-overlayfs).
+
+    This class creates a copy-on-write worktree using fuse-overlayfs,
+    where the original repository is the read-only lower layer and
+    modifications are stored in an upper layer.
+
+    Attributes:
+        worktree_dir: Path to the mounted overlay directory
+        branch: Name of the created branch
+        repo_dir: Path to the repository root
+        overlay_base_dir: Path to the overlay filesystem base directory
+        mount_dir: Path to the mounted overlay filesystem
+    """
+
+    overlay_base_dir: Path | None = None
+    mount_dir: Path | None = None
+
+    @classmethod
+    def from_branch(
+        cls, repo_dir: Path, base_branch: str, branch_prefix: str | None = None
+    ) -> Self:
+        """
+        Create a new overlay worktree using fuse-overlayfs.
+
+        Directory structure:
+        - $XDG_CACHE_HOME/papagai/<project>/<branch>-<date>-<uuid>/
+           - upperdir/
+           - workdir/  - fuse-overlayfs workdir
+           - mounted/  - mount point
+
+        The repo_dir is the read-only lower layer with fuse-overlayfs.
+
+        Args:
+            repo_dir: Path to the repository root
+            base_branch: Branch to base the new branch on
+            branch_prefix: Optional prefix for the branch name
+
+        Returns:
+            WorktreeOverlayFs instance with mounted overlay filesystem
+
+        Raises:
+            subprocess.CalledProcessError: If git or mount operations fail
+            RuntimeError: If fuse-overlayfs is not available
+        """
+        assert base_branch is not None
+
+        # Generate unique directory name using same scheme as Worktree
+        rand = str(uuid.uuid4()).split("-")[0]
+        date = datetime.now().strftime("%Y-%m-%d")
+        # Skip the branch prefix here so we don't nest directories too much
+        branch = f"{base_branch}-{date}-{rand}"
+
+        xdg_cache_home = (
+            Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "papagai"
+        )
+        overlay_base_dir = xdg_cache_home / repo_dir.name / branch
+        overlay_base_dir.mkdir(parents=True, exist_ok=True)
+
+        upperdir = overlay_base_dir / "upperdir"
+        workdir = overlay_base_dir / "workdir"
+        mount_dir = overlay_base_dir / "mounted"
+
+        upperdir.mkdir(exist_ok=True)
+        workdir.mkdir(exist_ok=True)
+        mount_dir.mkdir(exist_ok=True)
+
+        # Now add the branch prefix
+        branch = f"{branch_prefix or ''}{branch}"
+
+        try:
+            run_command(
+                [
+                    "fuse-overlayfs",
+                    "-o",
+                    f"lowerdir={repo_dir},upperdir={upperdir},workdir={workdir}",
+                    str(mount_dir),
+                ]
+            )
+        except subprocess.CalledProcessError as e:
+            # Cleanup directories if mount fails
+            shutil.rmtree(overlay_base_dir, ignore_errors=True)
+            raise RuntimeError(
+                f"Failed to mount overlay filesystem. Is fuse-overlayfs installed? Error: {e}"
+            ) from e
+
+        # Create a new git branch in the mounted directory
+        try:
+            run_command(
+                ["git", "checkout", "-fb", branch, base_branch],
+                cwd=mount_dir,
+            )
+        except subprocess.CalledProcessError as e:
+            # Cleanup on failure
+            run_command(["fusermount", "-u", str(mount_dir)], check=False)
+            shutil.rmtree(overlay_base_dir, ignore_errors=True)
+            raise RuntimeError(f"Failed to create git branch: {e}") from e
+
+        return cls(
+            worktree_dir=mount_dir,
+            branch=branch,
+            repo_dir=repo_dir,
+            overlay_base_dir=overlay_base_dir,
+            mount_dir=mount_dir,
+        )
+
+    def _cleanup(self) -> None:
+        """Clean up the overlay filesystem and directories."""
+        try:
+            # Check for uncommitted changes
+            try:
+                run_command(
+                    ["git", "diff", "--quiet", "--exit-code"],
+                    cwd=self.worktree_dir,
+                    check=True,
+                )
+            except subprocess.SubprocessError:
+                print(
+                    f"Changes still present in worktree {self.worktree_dir}, refusing to clean up."
+                )
+                print("To clean up manually, run:")
+                print(f"  $ fusermount -u {self.mount_dir}")
+                print(f"  $ rm -rf {self.overlay_base_dir}")
+                return
+
+            # Pull the branch from the overlay into the main repository
+            # before unmounting and cleaning up
+            try:
+                run_command(
+                    [
+                        "git",
+                        "fetch",
+                        str(self.mount_dir),
+                        f"{self.branch}:{self.branch}",
+                    ],
+                    cwd=self.repo_dir,
+                    check=True,
+                )
+                # Verify the branch exists in the main repository
+                run_command(
+                    ["git", "rev-parse", "--verify", self.branch],
+                    cwd=self.repo_dir,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(
+                    f"Warning: Failed to pull branch {self.branch} from overlay: {e}",
+                    file=sys.stderr,
+                )
+                print("To clean up manually, run:")
+                print(f"  $ git fetch {self.mount_dir} {self.branch}:{self.branch}")
+                print(f"  $ fusermount -u {self.mount_dir}")
+                print(f"  $ rm -rf {self.overlay_base_dir}")
+                return
+
+            # Unmount the overlay filesystem
+            if self.mount_dir and self.mount_dir.exists():
+                try:
+                    run_command(
+                        ["fusermount", "-u", str(self.mount_dir)],
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as e:
+                    print(
+                        f"Warning: Failed to unmount {self.mount_dir}: {e}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"You may need to manually unmount: fusermount -u {self.mount_dir}",
+                        file=sys.stderr,
+                    )
+                    return
+
+            # Remove the overlay base directory
+            if self.overlay_base_dir and self.overlay_base_dir.exists():
+                shutil.rmtree(self.overlay_base_dir, ignore_errors=True)
+
         except Exception as e:
             print(f"Warning during cleanup: {e}", file=sys.stderr)

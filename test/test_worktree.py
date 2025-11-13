@@ -3,13 +3,14 @@
 
 """Tests for worktree management utilities."""
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from papagai.worktree import Worktree, BRANCH_PREFIX
+from papagai.worktree import BRANCH_PREFIX, Worktree, WorktreeOverlayFs
 
 
 @pytest.fixture
@@ -328,3 +329,437 @@ class TestIntegration:
 
             # Verify cleanup was called (git diff + git worktree remove)
             assert mock_run.call_count >= 2
+
+
+class TestWorktreeOverlayFsDataclass:
+    """Tests for WorktreeOverlayFs dataclass structure."""
+
+    def test_overlay_fs_initialization(self, mock_git_repo, tmp_path):
+        """Test WorktreeOverlayFs can be initialized with all required fields."""
+        worktree_dir = tmp_path / "mounted"
+        branch = "papagai/test-branch"
+        overlay_base_dir = tmp_path / "overlay"
+        mount_dir = tmp_path / "mounted"
+
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=worktree_dir,
+            branch=branch,
+            repo_dir=mock_git_repo,
+            overlay_base_dir=overlay_base_dir,
+            mount_dir=mount_dir,
+        )
+
+        assert overlay_fs.worktree_dir == worktree_dir
+        assert overlay_fs.branch == branch
+        assert overlay_fs.repo_dir == mock_git_repo
+        assert overlay_fs.overlay_base_dir == overlay_base_dir
+        assert overlay_fs.mount_dir == mount_dir
+
+    def test_overlay_fs_inherits_from_worktree(self):
+        """Test WorktreeOverlayFs is a subclass of Worktree."""
+        assert issubclass(WorktreeOverlayFs, Worktree)
+
+    def test_overlay_fs_optional_fields_default_none(self, mock_git_repo, tmp_path):
+        """Test overlay_base_dir and mount_dir default to None."""
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=tmp_path / "test",
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+        )
+
+        assert overlay_fs.overlay_base_dir is None
+        assert overlay_fs.mount_dir is None
+
+
+class TestOverlayFsFromBranch:
+    """Tests for WorktreeOverlayFs.from_branch() classmethod."""
+
+    @patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
+    def test_from_branch_creates_cache_directory_structure(self, mock_git_repo):
+        """Test from_branch creates proper directory structure in cache."""
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
+
+            overlay_fs = WorktreeOverlayFs.from_branch(
+                mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+            )
+
+            # Check directory structure was created
+            assert overlay_fs.overlay_base_dir.parent.name == "test-repo"
+            assert str(overlay_fs.overlay_base_dir).startswith(
+                "/tmp/test-cache/papagai/"
+            )
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_from_branch_uses_home_cache_when_xdg_not_set(self, mock_git_repo):
+        """Test from_branch falls back to ~/.cache when XDG_CACHE_HOME not set."""
+        # Remove XDG_CACHE_HOME if it exists
+        os.environ.pop("XDG_CACHE_HOME", None)
+
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
+
+            overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+            # Should use ~/.cache
+            expected_prefix = str(Path.home() / ".cache" / "papagai")
+            assert str(overlay_fs.overlay_base_dir).startswith(expected_prefix)
+
+    def test_from_branch_creates_overlay_subdirectories(self, mock_git_repo, tmp_path):
+        """Test from_branch creates upperdir, workdir, and mounted subdirectories."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                # Check subdirectories were created
+                assert (overlay_fs.overlay_base_dir / "upperdir").exists()
+                assert (overlay_fs.overlay_base_dir / "workdir").exists()
+                assert (overlay_fs.overlay_base_dir / "mounted").exists()
+
+    def test_from_branch_mounts_with_fuse_overlayfs(self, mock_git_repo, tmp_path):
+        """Test from_branch calls fuse-overlayfs with correct parameters."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                # Find the fuse-overlayfs call
+                fuse_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fuse-overlayfs"
+                ]
+                assert len(fuse_calls) == 1
+
+                fuse_cmd = fuse_calls[0][0][0]
+                assert fuse_cmd[0] == "fuse-overlayfs"
+                assert fuse_cmd[1] == "-o"
+
+                # Check mount options
+                mount_opts = fuse_cmd[2]
+                assert f"lowerdir={mock_git_repo}" in mount_opts
+                assert "upperdir=" in mount_opts
+                assert "workdir=" in mount_opts
+
+                # Check mount point
+                assert fuse_cmd[3] == str(overlay_fs.mount_dir)
+
+    def test_from_branch_creates_git_branch_in_mount(self, mock_git_repo, tmp_path):
+        """Test from_branch creates a git branch in the mounted directory."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(
+                    mock_git_repo, "develop", branch_prefix=f"{BRANCH_PREFIX}/"
+                )
+
+                # Find the git checkout call
+                git_calls = [c for c in mock_run.call_args_list if c[0][0][0] == "git"]
+                assert len(git_calls) == 1
+
+                git_cmd = git_calls[0][0][0]
+                assert git_cmd[0] == "git"
+                assert git_cmd[1] == "checkout"
+                assert git_cmd[2] == "-fb"
+                assert git_cmd[3] == overlay_fs.branch
+                assert git_cmd[4] == "develop"
+
+                # Check cwd is the mount directory
+                assert git_calls[0][1]["cwd"] == overlay_fs.mount_dir
+
+    def test_from_branch_sets_worktree_dir_to_mounted(self, mock_git_repo, tmp_path):
+        """Test from_branch sets worktree_dir to the mounted directory."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                assert overlay_fs.worktree_dir == overlay_fs.mount_dir
+                assert overlay_fs.worktree_dir.name == "mounted"
+
+    def test_from_branch_uses_same_naming_scheme_as_worktree(
+        self, mock_git_repo, tmp_path
+    ):
+        """Test from_branch generates branch names using the same scheme as Worktree."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(
+                    mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+                )
+
+                # Branch should be: papagai/main-YYYY-MM-DD-XXXXXXXX
+                parts = overlay_fs.branch.split("/")
+                assert len(parts) == 2
+                assert parts[0] == BRANCH_PREFIX
+
+                # Second part should be: main-YYYY-MM-DD-uuid
+                branch_parts = parts[1].split("-")
+                assert branch_parts[0] == "main"
+                assert len(branch_parts) >= 4
+
+    def test_from_branch_cleanup_on_mount_failure(self, mock_git_repo, tmp_path):
+        """Test from_branch cleans up directories if mount fails."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                # Make fuse-overlayfs fail
+                mock_run.side_effect = subprocess.CalledProcessError(
+                    1, "fuse-overlayfs"
+                )
+
+                with pytest.raises(
+                    RuntimeError, match="Failed to mount overlay filesystem"
+                ):
+                    WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                # Directory should be cleaned up
+                papagai_dir = tmp_path / "papagai" / "test-repo"
+                if papagai_dir.exists():
+                    # If directory exists, it should be empty
+                    assert len(list(papagai_dir.iterdir())) == 0
+
+    def test_from_branch_cleanup_on_git_branch_failure(self, mock_git_repo, tmp_path):
+        """Test from_branch unmounts and cleans up if git branch creation fails."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                # Make git checkout fail, but fuse-overlayfs succeed
+                def run_side_effect(cmd, **kwargs):
+                    if cmd[0] == "git":
+                        raise subprocess.CalledProcessError(1, "git")
+                    return MagicMock()
+
+                mock_run.side_effect = run_side_effect
+
+                with pytest.raises(RuntimeError, match="Failed to create git branch"):
+                    WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                # Should have attempted to unmount
+                unmount_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+                ]
+                assert len(unmount_calls) == 1
+                assert unmount_calls[0][0][0][1] == "-u"
+
+    def test_from_branch_creates_unique_branches(self, mock_git_repo, tmp_path):
+        """Test from_branch creates unique branch names on each call."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs1 = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+                overlay_fs2 = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+                assert overlay_fs1.branch != overlay_fs2.branch
+                assert overlay_fs1.overlay_base_dir != overlay_fs2.overlay_base_dir
+
+
+class TestOverlayFsCleanup:
+    """Tests for WorktreeOverlayFs._cleanup() method."""
+
+    def test_cleanup_unmounts_overlay_filesystem(self, mock_git_repo, tmp_path):
+        """Test cleanup unmounts the overlay filesystem."""
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=tmp_path / "mounted",
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+            overlay_base_dir=tmp_path / "overlay",
+            mount_dir=tmp_path / "mounted",
+        )
+        overlay_fs.mount_dir.mkdir(parents=True)
+
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
+
+            overlay_fs._cleanup()
+
+            # Find the fusermount call
+            unmount_calls = [
+                c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+            ]
+            assert len(unmount_calls) == 1
+            assert unmount_calls[0][0][0] == [
+                "fusermount",
+                "-u",
+                str(overlay_fs.mount_dir),
+            ]
+
+    def test_cleanup_removes_overlay_base_directory(self, mock_git_repo, tmp_path):
+        """Test cleanup removes the entire overlay base directory."""
+        overlay_base = tmp_path / "overlay"
+        overlay_base.mkdir(parents=True)
+        mount_dir = overlay_base / "mounted"
+        mount_dir.mkdir()
+
+        # Create some files in the overlay directory
+        (overlay_base / "upperdir").mkdir()
+        (overlay_base / "workdir").mkdir()
+        (overlay_base / "upperdir" / "test.txt").write_text("test")
+
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=mount_dir,
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+            overlay_base_dir=overlay_base,
+            mount_dir=mount_dir,
+        )
+
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.return_value = MagicMock()
+
+            overlay_fs._cleanup()
+
+            # Directory should be removed
+            assert not overlay_base.exists()
+
+    def test_cleanup_refuses_with_uncommitted_changes(
+        self, mock_git_repo, tmp_path, capsys
+    ):
+        """Test cleanup refuses to unmount with uncommitted changes."""
+        overlay_base = tmp_path / "overlay"
+        mount_dir = overlay_base / "mounted"
+        mount_dir.mkdir(parents=True)
+
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=mount_dir,
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+            overlay_base_dir=overlay_base,
+            mount_dir=mount_dir,
+        )
+
+        with patch("papagai.worktree.run_command") as mock_run:
+            # Make git diff fail (changes present)
+            mock_run.side_effect = subprocess.CalledProcessError(1, "git")
+
+            overlay_fs._cleanup()
+
+            # Should only call git diff, not fusermount
+            assert mock_run.call_count == 1
+            unmount_calls = [
+                c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+            ]
+            assert len(unmount_calls) == 0
+
+            # Check warning message
+            captured = capsys.readouterr()
+            assert "Changes still present in worktree" in captured.out
+            assert "fusermount -u" in captured.out
+
+    def test_cleanup_handles_unmount_failure_gracefully(
+        self, mock_git_repo, tmp_path, capsys
+    ):
+        """Test cleanup handles unmount failures gracefully."""
+        overlay_base = tmp_path / "overlay"
+        mount_dir = overlay_base / "mounted"
+        mount_dir.mkdir(parents=True)
+
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=mount_dir,
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+            overlay_base_dir=overlay_base,
+            mount_dir=mount_dir,
+        )
+
+        with patch("papagai.worktree.run_command") as mock_run:
+
+            def run_side_effect(cmd, **kwargs):
+                if cmd[0] == "fusermount":
+                    raise subprocess.CalledProcessError(1, "fusermount")
+                return MagicMock()
+
+            mock_run.side_effect = run_side_effect
+
+            overlay_fs._cleanup()
+
+            # Check warning message
+            captured = capsys.readouterr()
+            assert "Failed to unmount" in captured.err
+            assert "manually unmount" in captured.err
+
+    def test_cleanup_handles_exceptions_gracefully(
+        self, mock_git_repo, tmp_path, capsys
+    ):
+        """Test cleanup handles exceptions without crashing."""
+        overlay_fs = WorktreeOverlayFs(
+            worktree_dir=tmp_path / "mounted",
+            branch="test-branch",
+            repo_dir=mock_git_repo,
+            overlay_base_dir=tmp_path / "overlay",
+            mount_dir=tmp_path / "mounted",
+        )
+
+        with patch("papagai.worktree.run_command") as mock_run:
+            mock_run.side_effect = Exception("Unexpected error")
+
+            # Should not raise, just print warning
+            overlay_fs._cleanup()
+
+            captured = capsys.readouterr()
+            assert "Warning during cleanup" in captured.err
+
+
+class TestOverlayFsContextManager:
+    """Tests for WorktreeOverlayFs context manager functionality."""
+
+    def test_context_manager_calls_cleanup_on_exit(self, mock_git_repo, tmp_path):
+        """Test context manager calls cleanup on exit."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+            with patch.object(overlay_fs, "_cleanup") as mock_cleanup:
+                with overlay_fs as wt:
+                    assert wt is overlay_fs
+                mock_cleanup.assert_called_once()
+
+    def test_context_manager_cleanup_on_exception(self, mock_git_repo, tmp_path):
+        """Test cleanup is called even when exception occurs in with block."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                overlay_fs = WorktreeOverlayFs.from_branch(mock_git_repo, "main")
+
+        with patch.object(overlay_fs, "_cleanup") as mock_cleanup:
+            try:
+                with overlay_fs:
+                    raise ValueError("Test exception")
+            except ValueError:
+                pass
+            mock_cleanup.assert_called_once()
+
+
+class TestOverlayFsIntegration:
+    """Integration tests for WorktreeOverlayFs."""
+
+    def test_full_workflow_with_context_manager(self, mock_git_repo, tmp_path):
+        """Test complete workflow: create, use, cleanup."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            with patch("papagai.worktree.run_command") as mock_run:
+                mock_run.return_value = MagicMock()
+
+                with WorktreeOverlayFs.from_branch(
+                    mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
+                ) as overlay_fs:
+                    # Verify overlay was created
+                    assert overlay_fs.branch.startswith(f"{BRANCH_PREFIX}/main")
+                    assert overlay_fs.repo_dir == mock_git_repo
+                    assert overlay_fs.worktree_dir == overlay_fs.mount_dir
+                    assert overlay_fs.overlay_base_dir is not None
+
+                # Verify mount and unmount were called
+                mount_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fuse-overlayfs"
+                ]
+                unmount_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+                ]
+                assert len(mount_calls) == 1
+                assert len(unmount_calls) == 1
