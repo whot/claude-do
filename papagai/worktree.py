@@ -77,7 +77,7 @@ class Worktree:
         """
         assert base_branch is not None
         rand = str(uuid.uuid4()).split("-")[0]
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = datetime.now().strftime("%Y%m%d-%H%M")
         branch_prefix = branch_prefix or ""
         branch = f"{branch_prefix}{base_branch}-{date}-{rand}"
         worktree_dir = repo_dir / branch
@@ -213,7 +213,7 @@ class WorktreeOverlayFs(Worktree):
 
         # Generate unique directory name using same scheme as Worktree
         rand = str(uuid.uuid4()).split("-")[0]
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = datetime.now().strftime("%Y%m%d-%H%M")
         # Skip the branch prefix here so we don't nest directories too much
         branch = f"{base_branch}-{date}-{rand}"
 

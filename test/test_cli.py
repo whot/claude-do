@@ -125,7 +125,7 @@ class TestPurgeDoneBranches:
     def test_purge_single_branch(self, mock_repo, capsys):
         """Test purge with one papagai branch."""
         with patch("papagai.cli.run_command") as mock_run:
-            branch_name = f"{BRANCH_PREFIX}/main-2025-01-01-abc123"
+            branch_name = f"{BRANCH_PREFIX}/main-20250101-1200-abc123"
             mock_run.return_value = MagicMock(stdout=f"{branch_name}\n")
 
             purge_branches(mock_repo)
@@ -152,9 +152,9 @@ class TestPurgeDoneBranches:
         """Test purge with multiple papagai branches."""
         with patch("papagai.cli.run_command") as mock_run:
             branches = [
-                f"{BRANCH_PREFIX}/main-2025-01-01-abc123",
-                f"{BRANCH_PREFIX}/develop-2025-01-02-def456",
-                f"{BRANCH_PREFIX}/feature-2025-01-03-ghi789",
+                f"{BRANCH_PREFIX}/main-20250101-1200-abc123",
+                f"{BRANCH_PREFIX}/develop-20250102-1300-def456",
+                f"{BRANCH_PREFIX}/feature-20250103-1400-ghi789",
             ]
             mock_run.return_value = MagicMock(stdout="\n".join(branches) + "\n")
 
@@ -176,7 +176,7 @@ class TestPurgeDoneBranches:
     def test_purge_skips_empty_lines(self, mock_repo):
         """Test purge skips empty lines in git output."""
         with patch("papagai.cli.run_command") as mock_run:
-            branch_name = f"{BRANCH_PREFIX}/main-2025-01-01-abc123"
+            branch_name = f"{BRANCH_PREFIX}/main-20250101-1200-abc123"
             # Output with empty lines
             mock_run.return_value = MagicMock(stdout=f"\n{branch_name}\n\n")
 
@@ -217,7 +217,7 @@ class TestPurgeDoneBranches:
     def test_purge_uses_correct_cwd(self, mock_repo):
         """Test purge uses the provided repo_dir as cwd."""
         with patch("papagai.cli.run_command") as mock_run:
-            branch_name = f"{BRANCH_PREFIX}/main-2025-01-01-abc123"
+            branch_name = f"{BRANCH_PREFIX}/main-20250101-1200-abc123"
             mock_run.return_value = MagicMock(stdout=f"{branch_name}\n")
 
             purge_branches(mock_repo)
@@ -229,7 +229,7 @@ class TestPurgeDoneBranches:
     def test_purge_handles_branch_with_slashes(self, mock_repo, capsys):
         """Test purge handles branches with slashes in name."""
         with patch("papagai.cli.run_command") as mock_run:
-            branch_name = f"{BRANCH_PREFIX}/feature/test-2025-01-01-abc123"
+            branch_name = f"{BRANCH_PREFIX}/feature/test-20250101-1200-abc123"
             mock_run.return_value = MagicMock(stdout=f"{branch_name}\n")
 
             purge_branches(mock_repo)
@@ -252,7 +252,7 @@ class TestIntegration:
             # First call: get_branch
             # Second call: purge list branches
             # Third call: purge delete branch
-            branch_to_delete = f"{BRANCH_PREFIX}/main-2025-01-01-abc123"
+            branch_to_delete = f"{BRANCH_PREFIX}/main-20250101-1200-abc123"
             mock_run.side_effect = [
                 MagicMock(stdout="main\n"),  # get_branch
                 MagicMock(stdout=f"{branch_to_delete}\n"),  # purge list

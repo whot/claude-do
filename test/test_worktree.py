@@ -30,8 +30,8 @@ def mock_git_repo(tmp_path):
 @pytest.fixture
 def mock_worktree(mock_git_repo):
     """Create a mock Worktree instance."""
-    worktree_dir = mock_git_repo / "papagai" / "main-2025-01-01-abc123"
-    branch = "papagai/main-2025-01-01-abc123"
+    worktree_dir = mock_git_repo / "papagai" / "main-20250101-1200-abc123"
+    branch = "papagai/main-20250101-1200-abc123"
     return Worktree(
         worktree_dir=worktree_dir,
         branch=branch,
@@ -154,15 +154,15 @@ class TestFromBranch:
                 mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
             )
 
-            # Branch should be: papagai/main-YYYY-MM-DD-XXXXXXXX
+            # Branch should be: papagai/main-YYYYmmdd-HHMM-XXXXXXXX
             parts = worktree.branch.split("/")
             assert len(parts) == 2
             assert parts[0] == BRANCH_PREFIX
 
-            # Second part should be: main-YYYY-MM-DD-XXXXXXXX
+            # Second part should be: main-YYYYmmdd-HHMM-uuid
             branch_parts = parts[1].split("-")
             assert branch_parts[0] == "main"
-            assert len(branch_parts) >= 4  # base-YYYY-MM-DD-uuid
+            assert len(branch_parts) >= 4  # base-YYYYmmdd-HHMM-uuid
 
     def test_from_branch_git_command_parameters(self, mock_git_repo):
         """Test that git worktree command is called with correct parameters."""
@@ -912,12 +912,12 @@ class TestOverlayFsFromBranch:
                     mock_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
                 )
 
-                # Branch should be: papagai/main-YYYY-MM-DD-XXXXXXXX
+                # Branch should be: papagai/main-YYYYmmdd-HHMM-XXXXXXXX
                 parts = overlay_fs.branch.split("/")
                 assert len(parts) == 2
                 assert parts[0] == BRANCH_PREFIX
 
-                # Second part should be: main-YYYY-MM-DD-uuid
+                # Second part should be: main-YYYYmmdd-HHMM-uuid
                 branch_parts = parts[1].split("-")
                 assert branch_parts[0] == "main"
                 assert len(branch_parts) >= 4
