@@ -4,8 +4,10 @@
 """Tests for markdown parsing utilities."""
 
 import logging
-import pytest
 from pathlib import Path
+
+import pytest
+
 from papagai.markdown import Markdown
 
 logger = logging.getLogger("papagai.test")

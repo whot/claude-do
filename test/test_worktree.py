@@ -623,11 +623,10 @@ class TestWorktreeLatestBranchIntegration:
         worktree = worktree_type.from_branch(
             real_git_repo, "main", branch_prefix=f"{BRANCH_PREFIX}/"
         )
-        with caplog.at_level(logging.WARNING, logger="papagai.worktree"):
-            with worktree:
-                # Create uncommitted changes by modifying a tracked file
-                readme_file = worktree.worktree_dir / "README.md"
-                readme_file.write_text("# Modified content\nUncommitted changes\n")
+        with caplog.at_level(logging.WARNING, logger="papagai.worktree"), worktree:
+            # Create uncommitted changes by modifying a tracked file
+            readme_file = worktree.worktree_dir / "README.md"
+            readme_file.write_text("# Modified content\nUncommitted changes\n")
 
         # After cleanup with uncommitted changes, they should be committed
         # Check that cleanup committed the changes (warning message should be printed)

@@ -11,12 +11,12 @@ import pytest
 from click.testing import CliRunner
 
 from papagai.cli import (
-    get_branch,
-    purge_branches,
-    purge_worktrees,
-    purge_overlays,
-    papagai,
     BRANCH_PREFIX,
+    get_branch,
+    papagai,
+    purge_branches,
+    purge_overlays,
+    purge_worktrees,
 )
 
 logger = logging.getLogger("papagai.test")
@@ -392,7 +392,6 @@ class TestPurgeOverlays:
     def test_purge_handles_unmount_failure(self, mock_repo, tmp_path, caplog):
         """Test purge handles unmount failures gracefully."""
         import os
-        import logging
 
         with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
             # Create overlay directory

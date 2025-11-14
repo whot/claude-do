@@ -78,7 +78,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test/**/*.py" = [
     "ARG001",  # unused function arguments (fixtures)
+    "ARG002",  # unused method arguments (fixtures)
+    "PT006",   # pytest parametrize - allow strings instead of tuples
     "PT011",   # pytest-raises-too-broad
+    "SIM117",  # nested with statements (test readability)
 ]
 
 [tool.mypy]
