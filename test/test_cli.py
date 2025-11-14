@@ -13,6 +13,8 @@ from click.testing import CliRunner
 from papagai.cli import (
     get_branch,
     purge_branches,
+    purge_worktrees,
+    purge_overlays,
     papagai,
     BRANCH_PREFIX,
 )
@@ -244,6 +246,170 @@ class TestPurgeDoneBranches:
 
             captured = capsys.readouterr()
             assert f"Deleting branch: {branch_name}" in captured.out
+
+
+class TestPurgeWorktrees:
+    """Tests for purge_worktrees() function."""
+
+    def test_purge_no_worktrees(self, mock_repo):
+        """Test purge when no papagai worktrees exist."""
+        with patch("papagai.cli.run_command") as mock_run:
+            # Mock git worktree list returning only main worktree
+            mock_run.return_value = MagicMock(
+                stdout="worktree /path/to/repo\nHEAD abc123\nbranch refs/heads/main\n"
+            )
+
+            purge_worktrees(mock_repo)
+
+            # Should only call git worktree list, not remove
+            assert mock_run.call_count == 1
+            call_args = mock_run.call_args_list[0]
+            assert call_args[0][0][0] == "git"
+            assert call_args[0][0][1] == "worktree"
+            assert call_args[0][0][2] == "list"
+
+    def test_purge_single_worktree(self, mock_repo, capsys):
+        """Test purge with one papagai worktree."""
+        with patch("papagai.cli.run_command") as mock_run:
+            worktree_path = f"{mock_repo}/papagai/main-20250101-1200-abc123"
+            branch_ref = f"refs/heads/{BRANCH_PREFIX}/main-20250101-1200-abc123"
+            mock_run.return_value = MagicMock(
+                stdout=f"worktree {worktree_path}\nHEAD abc123\nbranch {branch_ref}\n"
+            )
+
+            purge_worktrees(mock_repo)
+
+            # Should call git worktree list, then git worktree remove
+            assert mock_run.call_count == 2
+
+            # Second call: remove worktree
+            remove_call = mock_run.call_args_list[1]
+            assert remove_call[0][0][0] == "git"
+            assert remove_call[0][0][1] == "worktree"
+            assert remove_call[0][0][2] == "remove"
+            assert remove_call[0][0][3] == "--force"
+            assert remove_call[0][0][4] == worktree_path
+
+            # Check output message
+            captured = capsys.readouterr()
+            assert "Removing worktree:" in captured.out
+
+    def test_purge_multiple_worktrees(self, mock_repo, capsys):
+        """Test purge with multiple papagai worktrees."""
+        with patch("papagai.cli.run_command") as mock_run:
+            worktree1_path = f"{mock_repo}/papagai/main-20250101-1200-abc123"
+            worktree2_path = f"{mock_repo}/papagai/develop-20250102-1300-def456"
+            branch1_ref = f"refs/heads/{BRANCH_PREFIX}/main-20250101-1200-abc123"
+            branch2_ref = f"refs/heads/{BRANCH_PREFIX}/develop-20250102-1300-def456"
+
+            mock_run.return_value = MagicMock(
+                stdout=f"worktree {worktree1_path}\nHEAD abc123\nbranch {branch1_ref}\n\n"
+                f"worktree {worktree2_path}\nHEAD def456\nbranch {branch2_ref}\n"
+            )
+
+            purge_worktrees(mock_repo)
+
+            # Should call git worktree list once, then remove for each worktree
+            assert mock_run.call_count == 3
+
+            # Verify each worktree was removed
+            remove_calls = mock_run.call_args_list[1:]
+            assert remove_calls[0][0][0][4] == worktree1_path
+            assert remove_calls[1][0][0][4] == worktree2_path
+
+
+class TestPurgeOverlays:
+    """Tests for purge_overlays() function."""
+
+    def test_purge_no_overlays(self, mock_repo, tmp_path):
+        """Test purge when no overlay directories exist."""
+        import os
+
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            # Don't create any overlay directories
+            purge_overlays(mock_repo)
+            # Should complete without errors
+
+    def test_purge_single_overlay(self, mock_repo, tmp_path, capsys):
+        """Test purge with one overlay directory."""
+        import os
+
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            # Create overlay directory structure
+            overlay_base = tmp_path / "papagai" / mock_repo.name
+            # Nested branch structure with extra wip subfolder
+            overlay_dir = overlay_base / "wip" / "foo-20250101-1200-abc123"
+            mount_dir = overlay_dir / "mounted"
+            mount_dir.mkdir(parents=True)
+
+            with patch("papagai.cli.run_command") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+
+                purge_overlays(mock_repo)
+
+                # Should attempt to unmount
+                unmount_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+                ]
+                assert len(unmount_calls) == 1
+                assert unmount_calls[0][0][0] == ["fusermount", "-u", str(mount_dir)]
+
+                # Directory should be removed
+                assert not overlay_dir.exists()
+
+    def test_purge_multiple_overlays(self, mock_repo, tmp_path):
+        """Test purge with multiple overlay directories."""
+        import os
+
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            # Create multiple overlay directories
+            overlay_base = tmp_path / "papagai" / mock_repo.name
+            overlay_base.mkdir(parents=True)
+
+            overlay_dirs = []
+            for i in range(3):
+                # Nested branch structure with extra wip subfolder
+                overlay_dir = overlay_base / "wip" / f"main-2025010{i}-1200-abc12{i}"
+                mount_dir = overlay_dir / "mounted"
+                mount_dir.mkdir(parents=True)
+                overlay_dirs.append(overlay_dir)
+
+            with patch("papagai.cli.run_command") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+
+                purge_overlays(mock_repo)
+
+                # Should unmount each overlay
+                unmount_calls = [
+                    c for c in mock_run.call_args_list if c[0][0][0] == "fusermount"
+                ]
+                assert len(unmount_calls) == 3
+
+                # All directories should be removed
+                for overlay_dir in overlay_dirs:
+                    assert not overlay_dir.exists()
+
+    def test_purge_handles_unmount_failure(self, mock_repo, tmp_path, caplog):
+        """Test purge handles unmount failures gracefully."""
+        import os
+        import logging
+
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path)}):
+            # Create overlay directory
+            overlay_base = tmp_path / "papagai" / mock_repo.name
+            # Nested branch structure with extra wip subfolder
+            overlay_dir = overlay_base / "wip" / "main-20250101-1200-abc123"
+            mount_dir = overlay_dir / "mounted"
+            mount_dir.mkdir(parents=True)
+
+            with patch("papagai.cli.run_command") as mock_run:
+                mock_run.return_value = MagicMock(returncode=1)
+
+                with caplog.at_level(logging.WARNING):
+                    purge_overlays(mock_repo)
+
+                # Must not attempt to remove directory
+                assert overlay_dir.exists()
 
 
 class TestIntegration:
@@ -568,25 +734,134 @@ class TestPurgeCommand:
         """Test 'purge' command --help."""
         result = runner.invoke(papagai, ["purge", "--help"])
         assert result.exit_code == 0
-        assert "Delete all existing papagai branches" in result.output
+        assert "--branches" in result.output
+        assert "--worktrees" in result.output
+        assert "--overlays" in result.output
 
-    def test_purge_success(self, runner):
-        """Test 'purge' command succeeds."""
-        with patch("papagai.cli.purge_branches") as mock_purge:
-            result = runner.invoke(papagai, ["purge"])
+    def test_purge_success_all_defaults(self, runner):
+        """Test 'purge' command succeeds with all defaults (all enabled)."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    result = runner.invoke(papagai, ["purge"])
 
-            mock_purge.assert_called_once()
-            assert result.exit_code == 0
+                    mock_purge_branches.assert_called_once()
+                    mock_purge_worktrees.assert_called_once()
+                    mock_purge_overlays.assert_called_once()
+                    assert result.exit_code == 0
 
-    def test_purge_with_git_error(self, runner):
-        """Test 'purge' command handles git errors."""
-        with patch("papagai.cli.purge_branches") as mock_purge:
-            mock_purge.side_effect = subprocess.CalledProcessError(1, "git")
+    def test_purge_with_branches_only(self, runner):
+        """Test 'purge' command with only branches enabled."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    result = runner.invoke(
+                        papagai,
+                        ["purge", "--branches", "--no-worktrees", "--no-overlays"],
+                    )
 
-            result = runner.invoke(papagai, ["purge"])
+                    mock_purge_branches.assert_called_once()
+                    mock_purge_worktrees.assert_not_called()
+                    mock_purge_overlays.assert_not_called()
+                    assert result.exit_code == 0
 
-            # Command catches exception and shows error message
-            assert "Error purging done branches" in result.output
+    def test_purge_with_worktrees_only(self, runner):
+        """Test 'purge' command with only worktrees enabled."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    result = runner.invoke(
+                        papagai,
+                        ["purge", "--no-branches", "--worktrees", "--no-overlays"],
+                    )
+
+                    mock_purge_branches.assert_not_called()
+                    mock_purge_worktrees.assert_called_once()
+                    mock_purge_overlays.assert_not_called()
+                    assert result.exit_code == 0
+
+    def test_purge_with_overlays_only(self, runner):
+        """Test 'purge' command with only overlays enabled."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    result = runner.invoke(
+                        papagai,
+                        ["purge", "--no-branches", "--no-worktrees", "--overlays"],
+                    )
+
+                    mock_purge_branches.assert_not_called()
+                    mock_purge_worktrees.assert_not_called()
+                    mock_purge_overlays.assert_called_once()
+                    assert result.exit_code == 0
+
+    def test_purge_with_no_flags_purges_all(self, runner):
+        """Test 'purge' command with no flags purges all by default."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    result = runner.invoke(papagai, ["purge"])
+
+                    mock_purge_branches.assert_called_once()
+                    mock_purge_worktrees.assert_called_once()
+                    mock_purge_overlays.assert_called_once()
+                    assert result.exit_code == 0
+
+    def test_purge_with_git_error_in_branches(self, runner):
+        """Test 'purge' command handles git errors in branches."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees"):
+                with patch("papagai.cli.purge_overlays"):
+                    mock_purge_branches.side_effect = subprocess.CalledProcessError(
+                        1, "git"
+                    )
+
+                    result = runner.invoke(papagai, ["purge"])
+
+                    # Command catches exception and shows error message
+                    assert "Error purging branches" in result.output
+
+    def test_purge_with_git_error_in_worktrees(self, runner):
+        """Test 'purge' command handles git errors in worktrees."""
+        with patch("papagai.cli.purge_branches"):
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays"):
+                    mock_purge_worktrees.side_effect = subprocess.CalledProcessError(
+                        1, "git"
+                    )
+
+                    result = runner.invoke(papagai, ["purge"])
+
+                    # Command catches exception and shows error message
+                    assert "Error purging worktrees" in result.output
+
+    def test_purge_with_error_in_overlays(self, runner):
+        """Test 'purge' command handles errors in overlays."""
+        with patch("papagai.cli.purge_branches"):
+            with patch("papagai.cli.purge_worktrees"):
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    mock_purge_overlays.side_effect = Exception("Overlay error")
+
+                    result = runner.invoke(papagai, ["purge"])
+
+                    # Command catches exception and shows error message
+                    assert "Error purging overlays" in result.output
+
+    def test_purge_continues_on_error(self, runner):
+        """Test 'purge' command continues executing even if one operation fails."""
+        with patch("papagai.cli.purge_branches") as mock_purge_branches:
+            with patch("papagai.cli.purge_worktrees") as mock_purge_worktrees:
+                with patch("papagai.cli.purge_overlays") as mock_purge_overlays:
+                    mock_purge_branches.side_effect = subprocess.CalledProcessError(
+                        1, "git"
+                    )
+
+                    runner.invoke(papagai, ["purge"])
+
+                    # All operations should be attempted despite error in first
+                    mock_purge_branches.assert_called_once()
+                    mock_purge_worktrees.assert_called_once()
+                    mock_purge_overlays.assert_called_once()
 
 
 class TestTaskCommand:
