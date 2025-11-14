@@ -42,6 +42,7 @@ packages = ["papagai"]
 include = [
     "papagai/instructions/**/*.md",
     "papagai/primers/**/*.md",
+    "papagai/py.typed",
 ]
 
 [dependency-groups]
