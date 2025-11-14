@@ -3,6 +3,7 @@
 
 """Tests for task loading from XDG_CONFIG_HOME."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,8 @@ from papagai.cli import (
     list_all_tasks,
     papagai,
 )
+
+logger = logging.getLogger("papagai.test")
 
 
 class TestGetXdgTaskDir:

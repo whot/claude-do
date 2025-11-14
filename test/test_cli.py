@@ -3,6 +3,7 @@
 
 """Tests for CLI utility functions."""
 
+import logging
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,8 @@ from papagai.cli import (
     papagai,
     BRANCH_PREFIX,
 )
+
+logger = logging.getLogger("papagai.test")
 
 
 @pytest.fixture

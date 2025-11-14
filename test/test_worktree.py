@@ -3,6 +3,7 @@
 
 """Tests for worktree management utilities."""
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -17,6 +18,8 @@ from papagai.worktree import (
     WorktreeOverlayFs,
     repoint_latest_branch,
 )
+
+logger = logging.getLogger("papagai.test")
 
 
 @pytest.fixture

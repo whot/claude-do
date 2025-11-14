@@ -3,10 +3,13 @@
 
 """Markdown file parsing utilities."""
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
+
+logger = logging.getLogger("papagai.markdown")
 
 # Regex pattern for frontmatter key: value pairs
 # Matches: key_name: value
