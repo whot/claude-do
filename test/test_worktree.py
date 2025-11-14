@@ -268,7 +268,7 @@ class TestCleanup:
             assert calls[2][0][0][1] == "worktree"
             assert calls[2][0][0][2] == "remove"
 
-    def test_cleanup_refuses_with_uncommitted_changes(self, mock_worktree, capsys):
+    def test_cleanup_refuses_with_uncommitted_changes(self, mock_worktree, caplog):
         """Test cleanup refuses to remove worktree with uncommitted changes."""
         mock_worktree.worktree_dir.mkdir(parents=True)
 
@@ -282,10 +282,10 @@ class TestCleanup:
             assert mock_run.call_count == 1
 
             # Check warning message
-            captured = capsys.readouterr()
-            assert "Changes still present in worktree" in captured.out
-            assert "refusing to clean up" in captured.out
-            assert mock_worktree.branch in captured.out
+            log_output = caplog.text
+            assert "Changes still present in worktree" in log_output
+            assert "refusing to clean up" in log_output
+            assert mock_worktree.branch in log_output
 
     def test_cleanup_removes_worktree_directory(self, mock_worktree):
         """Test cleanup removes worktree directory if it exists."""
@@ -343,7 +343,7 @@ class TestCleanup:
             assert parent_dir.exists()
             assert other_file.exists()
 
-    def test_cleanup_handles_exceptions_gracefully(self, mock_worktree, capsys):
+    def test_cleanup_handles_exceptions_gracefully(self, mock_worktree, caplog):
         """Test cleanup handles exceptions without crashing."""
         with patch("papagai.worktree.run_command") as mock_run:
             mock_run.side_effect = Exception("Unexpected error")
@@ -351,8 +351,8 @@ class TestCleanup:
             # Should not raise, just print warning
             mock_worktree._cleanup()
 
-            captured = capsys.readouterr()
-            assert "Warning during cleanup" in captured.err
+            log_output = caplog.text
+            assert "Warning during cleanup" in log_output
 
     @pytest.mark.parametrize("check_value", [True, False])
     def test_cleanup_git_worktree_remove_check_parameter(
@@ -510,7 +510,7 @@ class TestUpdateLatestBranch:
             assert second_call[1]["check"] is True
 
     def test_repoint_latest_branch_handles_errors_gracefully(
-        self, mock_git_repo, capsys
+        self, mock_git_repo, caplog
     ):
         """Test repoint_latest_branch handles git errors without crashing."""
         with patch("papagai.worktree.run_command") as mock_run:
@@ -525,9 +525,9 @@ class TestUpdateLatestBranch:
             # Should not raise, just print warning
             repoint_latest_branch(mock_git_repo, "test-branch")
 
-            captured = capsys.readouterr()
-            assert "Warning: Failed to update" in captured.err
-            assert LATEST_BRANCH in captured.err
+            log_output = caplog.text
+            assert "Warning: Failed to update" in log_output
+            assert LATEST_BRANCH in log_output
 
 
 @patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})
@@ -585,7 +585,7 @@ class TestWorktreeLatestBranchIntegration:
         assert latest_commit == worktree_commit
 
     def test_worktree_cleanup_skips_latest_with_uncommitted_changes(
-        self, real_git_repo, capsys, worktree_type
+        self, real_git_repo, caplog, worktree_type
     ):
         """Test Worktree cleanup doesn't create latest when there are uncommitted changes."""
         # Get the commit hash before creating worktree
@@ -617,9 +617,9 @@ class TestWorktreeLatestBranchIntegration:
 
         # After cleanup with uncommitted changes, latest should not be updated
         # Check that cleanup was refused (warning message should be printed)
-        captured = capsys.readouterr()
-        assert "Changes still present in worktree" in captured.out
-        assert "refusing to clean up" in captured.out
+        log_output = caplog.text
+        assert "Changes still present in worktree" in log_output
+        assert "refusing to clean up" in log_output
 
         # If latest existed before, it should still point to the same commit
         # If it didn't exist before, it should still not exist
@@ -1040,7 +1040,7 @@ class TestOverlayFsCleanup:
             assert not overlay_base.exists()
 
     def test_cleanup_refuses_with_uncommitted_changes(
-        self, mock_git_repo, tmp_path, capsys
+        self, mock_git_repo, tmp_path, caplog
     ):
         """Test cleanup refuses to unmount with uncommitted changes."""
         overlay_base = tmp_path / "overlay"
@@ -1069,12 +1069,12 @@ class TestOverlayFsCleanup:
             assert len(unmount_calls) == 0
 
             # Check warning message
-            captured = capsys.readouterr()
-            assert "Changes still present in worktree" in captured.out
-            assert "fusermount -u" in captured.out
+            log_output = caplog.text
+            assert "Changes still present in worktree" in log_output
+            assert "fusermount -u" in log_output
 
     def test_cleanup_handles_unmount_failure_gracefully(
-        self, mock_git_repo, tmp_path, capsys
+        self, mock_git_repo, tmp_path, caplog
     ):
         """Test cleanup handles unmount failures gracefully."""
         overlay_base = tmp_path / "overlay"
@@ -1101,12 +1101,12 @@ class TestOverlayFsCleanup:
             overlay_fs._cleanup()
 
             # Check warning message
-            captured = capsys.readouterr()
-            assert "Failed to unmount" in captured.err
-            assert "manually unmount" in captured.err
+            log_output = caplog.text
+            assert "Failed to unmount" in log_output
+            assert "manually unmount" in log_output
 
     def test_cleanup_handles_exceptions_gracefully(
-        self, mock_git_repo, tmp_path, capsys
+        self, mock_git_repo, tmp_path, caplog
     ):
         """Test cleanup handles exceptions without crashing."""
         overlay_fs = WorktreeOverlayFs(
@@ -1123,8 +1123,8 @@ class TestOverlayFsCleanup:
             # Should not raise, just print warning
             overlay_fs._cleanup()
 
-            captured = capsys.readouterr()
-            assert "Warning during cleanup" in captured.err
+            log_output = caplog.text
+            assert "Warning during cleanup" in log_output
 
 
 @patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/test-cache"})

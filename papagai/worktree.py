@@ -7,7 +7,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -40,7 +39,7 @@ def repoint_latest_branch(repo_dir: Path, branch: str) -> None:
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        print(f"Warning: Failed to update {LATEST_BRANCH}: {e}", file=sys.stderr)
+        logger.error(f"Warning: Failed to update {LATEST_BRANCH}: {e}")
 
 
 @dataclass
@@ -116,9 +115,9 @@ class Worktree:
                     check=True,
                 )
             except subprocess.SubprocessError:
-                print("Changes still present in worktree, refusing to clean up.")
-                print("To clean up manually, run:")
-                print(f"  $ git worktree remove --force {self.branch}")
+                logger.error("Changes still present in worktree, refusing to clean up.")
+                logger.error("To clean up manually, run:")
+                logger.error(f"  $ git worktree remove --force {self.branch}")
                 return
 
             repoint_latest_branch(self.repo_dir, self.branch)
@@ -146,7 +145,7 @@ class Worktree:
                     # Directory not empty or other error, stop cleanup
                     break
         except Exception as e:
-            print(f"Warning during cleanup: {e}", file=sys.stderr)
+            logger.error(f"Warning during cleanup: {e}")
 
 
 @dataclass
@@ -283,12 +282,12 @@ class WorktreeOverlayFs(Worktree):
                     check=True,
                 )
             except subprocess.SubprocessError:
-                print(
+                logger.error(
                     f"Changes still present in worktree {self.worktree_dir}, refusing to clean up."
                 )
-                print("To clean up manually, run:")
-                print(f"  $ fusermount -u {self.mount_dir}")
-                print(f"  $ rm -rf {self.overlay_base_dir}")
+                logger.error("To clean up manually, run:")
+                logger.error(f"  $ fusermount -u {self.mount_dir}")
+                logger.error(f"  $ rm -rf {self.overlay_base_dir}")
                 return
 
             # Pull the branch from the overlay into the main repository
@@ -311,14 +310,15 @@ class WorktreeOverlayFs(Worktree):
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
-                print(
-                    f"Warning: Failed to pull branch {self.branch} from overlay: {e}",
-                    file=sys.stderr,
+                logger.error(
+                    f"Warning: Failed to pull branch {self.branch} from overlay: {e}"
                 )
-                print("To clean up manually, run:")
-                print(f"  $ git fetch {self.mount_dir} {self.branch}:{self.branch}")
-                print(f"  $ fusermount -u {self.mount_dir}")
-                print(f"  $ rm -rf {self.overlay_base_dir}")
+                logger.error("To clean up manually, run:")
+                logger.error(
+                    f"  $ git fetch {self.mount_dir} {self.branch}:{self.branch}"
+                )
+                logger.error(f"  $ fusermount -u {self.mount_dir}")
+                logger.error(f"  $ rm -rf {self.overlay_base_dir}")
                 return
 
             repoint_latest_branch(self.repo_dir, self.branch)
@@ -328,13 +328,9 @@ class WorktreeOverlayFs(Worktree):
                 try:
                     self.umount(check=True)
                 except subprocess.CalledProcessError as e:
-                    print(
-                        f"Warning: Failed to unmount {self.mount_dir}: {e}",
-                        file=sys.stderr,
-                    )
-                    print(
-                        f"You may need to manually unmount: fusermount -u {self.mount_dir}",
-                        file=sys.stderr,
+                    logger.error(f"Warning: Failed to unmount {self.mount_dir}: {e}")
+                    logger.error(
+                        f"You may need to manually unmount: fusermount -u {self.mount_dir}"
                     )
                     return
 
@@ -343,4 +339,4 @@ class WorktreeOverlayFs(Worktree):
                 shutil.rmtree(self.overlay_base_dir, ignore_errors=True)
 
         except Exception as e:
-            print(f"Warning during cleanup: {e}", file=sys.stderr)
+            logger.error(f"Warning during cleanup: {e}")
