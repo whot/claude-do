@@ -5,6 +5,7 @@ import enum
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -113,6 +114,9 @@ def get_branch(repo_dir: Path, ref: str = "HEAD") -> str:
 
 
 def purge_branches(repo_dir: Path) -> None:
+    """
+    Delete all papagai branches from the repository.
+    """
     result = run_command(
         ["git", "branch", "--format=%(refname:short)", "--list", f"{BRANCH_PREFIX}/*"],
         cwd=repo_dir,
@@ -120,7 +124,74 @@ def purge_branches(repo_dir: Path) -> None:
     branches = result.stdout.strip().split("\n")
     for branch in [b for b in branches if b]:
         click.echo(f"Deleting branch: {branch}")
-        run_command(["git", "branch", "-D", branch], cwd=repo_dir)
+        run_command(["git", "branch", "-D", branch], cwd=repo_dir, check=False)
+
+
+def purge_worktrees(repo_dir: Path) -> None:
+    """
+    Remove any leftover git worktrees created by papagai.
+    """
+    result = run_command(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo_dir,
+    )
+
+    # Parse worktree list output
+    # Format is: worktree <path>\nHEAD <sha>\nbranch <branch>\n\n
+    worktrees = []
+    current_worktree = {}
+    for line in result.stdout.strip().split("\n"):
+        if line.startswith("worktree ") and len(line) > 0:
+            if current_worktree:
+                worktrees.append(current_worktree)
+            current_worktree = {"path": line.split(" ", 1)[1]}
+        elif line.startswith("branch ") and len(line) > 0:
+            current_worktree["branch"] = line.split(" ", 1)[1]
+
+    if current_worktree:
+        worktrees.append(current_worktree)
+
+    for worktree in worktrees:
+        branch = worktree.get("branch", "")
+
+        if branch.startswith(f"refs/heads/{BRANCH_PREFIX}/"):
+            path = worktree.get("path", "")
+            click.echo(f"Removing worktree: {path} (branch: {branch})")
+            run_command(
+                ["git", "worktree", "remove", "--force", path],
+                cwd=repo_dir,
+                check=False,
+            )
+
+
+def purge_overlays(repo_dir: Path) -> None:
+    """
+    Remove and unmount any leftover overlayfs created by papagai.
+    """
+    xdg_cache_home = (
+        Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "papagai"
+    )
+    overlay_base = xdg_cache_home / repo_dir.name
+
+    if not overlay_base.exists():
+        return
+
+    # Find all overlay directories
+    dirs = list(overlay_base.glob("**/mounted"))
+    for mount_dir in dirs:
+        if not mount_dir.is_dir():
+            continue
+
+        click.echo(f"Unmounting overlay: {mount_dir}")
+        result = run_command(
+            ["fusermount", "-u", str(mount_dir)],
+            check=False,
+        )
+        if result.returncode == 0:
+            click.echo(f"Removing overlay directory: {mount_dir.parent}")
+            shutil.rmtree(mount_dir.parent, ignore_errors=True)
+        else:
+            logger.warning(f"Failed to unmount {mount_dir}, it may not be mounted")
 
 
 def run_claude(
@@ -439,19 +510,56 @@ def cmd_code(
 
 
 @papagai.command("purge")
-def cmd_purge() -> int:
-    """Delete all existing papagai branches."""
+@click.option(
+    "--branches/--no-branches",
+    default=True,
+    help="Remove git branches created by papagai (default: --branches)",
+)
+@click.option(
+    "--worktrees/--no-worktrees",
+    default=True,
+    help="Remove leftover git worktrees created by papagai (default: --worktrees)",
+)
+@click.option(
+    "--overlays/--no-overlays",
+    default=True,
+    help="Remove and unmount leftover overlayfs created by papagai (default: --overlays)",
+)
+def cmd_purge(branches: bool, worktrees: bool, overlays: bool) -> int:
+    """
+    Clean up papagai artifacts: branches, worktrees, and overlayfs.
+
+    By default, removes all types of artifacts. Use --no-* flags to skip specific types.
+    """
     repo_dir = Path.cwd().resolve()
     if not repo_dir.is_dir():
         click.secho(f"Error: {repo_dir} is not a directory", err=True, fg="red")
         return 1
 
-    try:
-        purge_branches(repo_dir)
-    except subprocess.CalledProcessError as e:
-        click.secho(f"Error purging done branches: {e}", err=True, fg="red")
-        return 1
-    return 0
+    error_occurred = False
+
+    if branches:
+        try:
+            purge_branches(repo_dir)
+        except subprocess.CalledProcessError as e:
+            click.secho(f"Error purging branches: {e}", err=True, fg="red")
+            error_occurred = True
+
+    if worktrees:
+        try:
+            purge_worktrees(repo_dir)
+        except subprocess.CalledProcessError as e:
+            click.secho(f"Error purging worktrees: {e}", err=True, fg="red")
+            error_occurred = True
+
+    if overlays:
+        try:
+            purge_overlays(repo_dir)
+        except Exception as e:
+            click.secho(f"Error purging overlays: {e}", err=True, fg="red")
+            error_occurred = True
+
+    return 1 if error_occurred else 0
 
 
 @papagai.command("task")
